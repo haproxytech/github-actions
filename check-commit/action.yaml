@@ -1,0 +1,6 @@
+name: check-commit
+author: mmhedhbi@haproxy.com
+description: Check commit subject so it is compliant with HAProxy guidelines
+runs:
+  using: docker
+  image: Dockerfile
