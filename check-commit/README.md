@@ -46,5 +46,5 @@ steps:
   - name: Check out code
     uses: actions/checkout@v1
   - name: check-commit
-    uses: haproxytech/github-actions/check-commit@master
+    uses: docker://haproxytech/check-commit:TAG
 ```

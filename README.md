@@ -7,10 +7,22 @@ This repository contains Github Actions used in CI/CD workflows of [HAProxy Tech
 
 ## Usage
 
+- Using action via Docker container image on Docker Hub:
+
 ```yaml
 steps:
   - name: Check out code
     uses: actions/checkout@v1
   - name: action-name
-    uses: haproxytech/github-actions/action-name@master
+    uses: docker://haproxytech/action-name:TAG
+```
+
+- Using action via HAProxyTech repository:
+
+```yaml
+steps:
+  - name: Check out code
+    uses: actions/checkout@v1
+  - name: action-name
+    uses: haproxytech/github-actions/action-name@TAG
 ```
