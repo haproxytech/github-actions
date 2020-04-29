@@ -1,6 +1,0 @@
-name: golangci-lint
-author: mmhedhbi@haproxy.com
-description: Run Golangci-lint
-runs:
-  using: docker
-  image: Dockerfile
