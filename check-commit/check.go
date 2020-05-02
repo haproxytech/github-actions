@@ -47,46 +47,77 @@ func (ps PatchSeverity) IsValid() error {
 	return fmt.Errorf("Invalid patch severity '%s'\n%s", ps, guidelinesLink)
 }
 
-func main() {
-	subject, err := exec.Command("git", "log", "-1", "--pretty=format:'%s'").Output()
-	if err != nil {
-		log.Fatal(fmt.Errorf("Unable to get log subject %s", err))
-	}
-
-	if len(subject) > 0 {
-		if subject[0] == []byte("'")[0] {
-			subject = subject[1:]
-		}
-		if subject[len(subject)-1] == []byte("'")[0] {
-			subject = subject[:len(subject)-1]
-		}
-	}
-	parts := strings.Split(string(subject), ":")
+func checkSubject(subject string) error {
+	parts := strings.Split(subject, ":")
 	if len(parts) < 2 {
-		log.Fatal(fmt.Errorf("Incorrect message format\n" + guidelinesLink))
+		return fmt.Errorf("Incorrect message format '%s'\n%s", subject, guidelinesLink)
 	}
 
 	// Commit type
-	commitType := strings.Split(string(parts[0]), "/")
+	commitType := strings.Split(parts[0], "/")
 	switch len(commitType) {
 	case 1:
 		errPs := PatchSeverity(commitType[0]).IsValid()
 		errPt := PatchType(commitType[0]).IsValid()
 		if errPs != nil && errPt != nil {
-			log.Fatal(errPs)
+			return errPs
 		}
 	case 2:
 		if err := PatchType(commitType[0]).IsValid(); err != nil {
-			log.Fatal(err)
+			return err
 		}
 		if err := PatchSeverity(commitType[1]).IsValid(); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	default:
-		log.Fatal(fmt.Errorf("Incorrect message format\n" + guidelinesLink))
+		return fmt.Errorf("Incorrect message format '%s'\n%s", subject, guidelinesLink)
 	}
 	// Commit subject
 	if len(parts[1]) < 20 || len(strings.Split(parts[1], " ")) < 3 {
-		log.Fatal(fmt.Errorf("Too short or meaningless commit subject"))
+		return fmt.Errorf("Too short or meaningless commit subject")
+	}
+	return nil
+}
+
+func stripQuotes(input string) string {
+	if len(input) > 0 {
+		if input[0] == []byte("'")[0] {
+			input = input[1:]
+		}
+		if input[len(input)-1] == []byte("'")[0] {
+			input = input[:len(input)-1]
+		}
+	}
+	return input
+}
+
+func main() {
+	out, err := exec.Command("git", "log", "-1", "--pretty=format:'%s'").Output()
+	if err != nil {
+		log.Fatal(fmt.Errorf("Unable to get log subject '%s'", err))
+	}
+
+	// Handle Merge Request where the subject of last commit has the format:
+	// "Merge commitA-ID into commitB-ID"
+	// TODO: Make this generic by taking IDs as input params
+	subject := stripQuotes(string(out))
+	if strings.HasPrefix(subject, "Merge") {
+		log.Println("Handling Merge Request:\n", subject)
+		parts := strings.Fields(subject)
+		if len(parts) != 4 {
+			log.Fatal(fmt.Errorf("Unkown Merge commit format '%s'\n", subject))
+		}
+		out, err = exec.Command("git", "log", parts[3]+".."+parts[1], "--pretty=format:'%s'").Output()
+		if err != nil {
+			log.Fatal(fmt.Errorf("Unable to get log subject: '%s'", err))
+		}
+	}
+
+	// Check subject
+	for _, subject = range strings.Split(string(out), "\n") {
+		subject = stripQuotes(subject)
+		if err := checkSubject(string(subject)); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
