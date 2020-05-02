@@ -2,6 +2,9 @@
 
 This action checks that the commit subject is compliant with the [patch classifying rules](https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632) of HAProxy contribution guidelines. Also it does minimal check for a meaningful message in the commit subject: no less than 20 characters and at least 3 words.
 
+By default only the top commit subject is checked.
+If the commit subject has the format: `Merge 'commitA-ID' into 'commitB-ID'`, all commit subjects between 'commitA' and 'commitB' will be checked.
+
 ## Examples
 
 ### Good
@@ -44,7 +47,10 @@ None.
 ```yaml
 steps:
   - name: Check out code
-    uses: actions/checkout@v1
+    uses: actions/checkout@v2
+    with:
+      fetch-depth: 10
   - name: check-commit
     uses: docker://haproxytech/check-commit:TAG
 ```
+Here we instruct `checkout@v2` action to fetch last 10 commits (by default it fetches only last one) which is required in case of checking multiple commits.

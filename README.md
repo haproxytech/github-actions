@@ -12,7 +12,7 @@ This repository contains Github Actions used in CI/CD workflows of [HAProxy Tech
 ```yaml
 steps:
   - name: Check out code
-    uses: actions/checkout@v1
+    uses: actions/checkout@v2
   - name: action-name
     uses: docker://haproxytech/action-name:TAG
 ```
@@ -22,7 +22,7 @@ steps:
 ```yaml
 steps:
   - name: Check out code
-    uses: actions/checkout@v1
+    uses: actions/checkout@v2
   - name: action-name
     uses: haproxytech/github-actions/action-name@TAG
 ```
