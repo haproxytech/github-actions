@@ -75,7 +75,7 @@ func checkSubject(subject string) error {
 	// Commit subject
 
 	subject = strings.Join(parts[1:], " ")
-	if len(subject) < 20 || len(strings.Split(subject, " ")) < 3 {
+	if len(subject) < 15 || len(strings.Split(subject, " ")) < 3 {
 		return fmt.Errorf("Too short or meaningless commit subject '%s'", subject)
 	}
 	return nil
