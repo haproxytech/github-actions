@@ -78,6 +78,9 @@ func checkSubject(subject string) error {
 	if len(subject) < 15 || len(strings.Split(subject, " ")) < 3 {
 		return fmt.Errorf("Too short or meaningless commit subject '%s'", subject)
 	}
+	if len(subject) > 100 || len(strings.Split(subject, " ")) > 15 {
+		return fmt.Errorf("Too long commit subject '%s'", subject)
+	}
 	return nil
 }
 
@@ -107,7 +110,7 @@ func main() {
 		log.Println("Handling Merge Request:\n", subject)
 		parts := strings.Fields(subject)
 		if len(parts) != 4 {
-			log.Fatal(fmt.Errorf("Unkown Merge commit format '%s'\n", subject))
+			log.Fatal(fmt.Errorf("Unknown Merge commit format '%s'\n", subject))
 		}
 		out, err = exec.Command("git", "log", parts[3]+".."+parts[1], "--pretty=format:'%s'").Output()
 		if err != nil {
