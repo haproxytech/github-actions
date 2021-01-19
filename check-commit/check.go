@@ -20,6 +20,7 @@ const (
 	RELEASE PatchType = "RELEASE"
 	REORG   PatchType = "REORG"
 	TEST    PatchType = "TEST"
+	REVERT  PatchType = "REVERT"
 )
 
 const (
@@ -33,7 +34,7 @@ const guidelinesLink = "Please refer to https://github.com/haproxy/haproxy/blob/
 
 func (pt PatchType) IsValid() error {
 	switch pt {
-	case BUG, BUILD, CLEANUP, DOC, LICENSE, OPTIM, RELEASE, REORG, TEST:
+	case BUG, BUILD, CLEANUP, DOC, LICENSE, OPTIM, RELEASE, REORG, TEST, REVERT:
 		return nil
 	}
 	return fmt.Errorf("Invalid patch type '%s'\n%s", pt, guidelinesLink)
