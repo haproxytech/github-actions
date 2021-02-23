@@ -80,11 +80,17 @@ func checkSubject(subject string) error {
 	subject = strings.Join(parts[1:], " ")
 	subjectParts := strings.FieldsFunc(subject, split)
 
-	if len(subject) < 15 || len(subjectParts) < 3 {
-		return fmt.Errorf("Too short or meaningless commit subject '%s'", subject)
+	if len(subjectParts) < 3 {
+		return fmt.Errorf("Too short or meaningless commit subject [words %d < 3] '%s'", len(subjectParts), subjectParts)
 	}
-	if len(subject) > 100 || len(subjectParts) > 15 {
-		return fmt.Errorf("Too long commit subject '%s'", subject)
+	if len(subject) < 15 {
+		return fmt.Errorf("Too short or meaningless commit subject [len %d < 15]'%s'", len(subject), subject)
+	}
+	if len(subjectParts) > 15 {
+		return fmt.Errorf("Too long commit subject [words %d > 15 - use msg body] '%s'", len(subjectParts), subjectParts)
+	}
+	if len(subject) > 100 {
+		return fmt.Errorf("Too long commit subject [len %d > 100] '%s'", len(subject), subject)
 	}
 	return nil
 }
