@@ -7,8 +7,10 @@ import (
 	"strings"
 )
 
-type PatchType string
-type PatchSeverity string
+type (
+	PatchType     string
+	PatchSeverity string
+)
 
 const (
 	BUG     PatchType = "BUG"
@@ -76,13 +78,19 @@ func checkSubject(subject string) error {
 	// Commit subject
 
 	subject = strings.Join(parts[1:], " ")
-	if len(subject) < 15 || len(strings.Split(subject, " ")) < 3 {
+	subjectParts := strings.FieldsFunc(subject, split)
+
+	if len(subject) < 15 || len(subjectParts) < 3 {
 		return fmt.Errorf("Too short or meaningless commit subject '%s'", subject)
 	}
-	if len(subject) > 100 || len(strings.Split(subject, " ")) > 15 {
+	if len(subject) > 100 || len(subjectParts) > 15 {
 		return fmt.Errorf("Too long commit subject '%s'", subject)
 	}
 	return nil
+}
+
+func split(r rune) bool {
+	return r == ' '
 }
 
 func stripQuotes(input string) string {
