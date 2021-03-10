@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -99,31 +100,79 @@ func split(r rune) bool {
 	return r == ' '
 }
 
-func main() {
-	out, err := exec.Command("git", "log", "-1", "--pretty=format:'%s'").Output()
-	if err != nil {
-		log.Fatal(fmt.Errorf("Unable to get log subject '%s'", err))
-	}
+type gitEnv struct {
+	Ref  string
+	Base string
+}
 
-	// Handle Merge Request where the subject of last commit has the format:
-	// "Merge commitA-ID into commitB-ID"
-	// TODO: Make this generic by taking IDs as input params
-	subject := strings.Trim((string(out)), "'")
-	if strings.HasPrefix(subject, "Merge") {
-		log.Println("Handling Merge Request:\n", subject)
-		parts := strings.Fields(subject)
-		if len(parts) != 4 {
-			log.Fatal(fmt.Errorf("Unknown Merge commit format '%s'\n", subject))
+type gitEnvVars struct {
+	EnvName string
+	RefVar  string
+	BaseVar string
+}
+
+var knownVars []gitEnvVars = []gitEnvVars{
+	{"Github", "GITHUB_REF", "GITHUB_BASE_REF"},
+	{"Gitlab", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
+}
+
+func readGitEnvironment() (*gitEnv, error) {
+	var ref, base string
+	for _, vars := range knownVars {
+		ref = os.Getenv(vars.RefVar)
+		base = os.Getenv(vars.BaseVar)
+		if ref != "" && base != "" {
+			log.Printf("detected %s environment\n", vars.EnvName)
+			return &gitEnv{
+				Ref:  ref,
+				Base: base,
+			}, nil
 		}
-		out, err = exec.Command("git", "log", parts[3]+".."+parts[1], "--pretty=format:'%s'").Output()
+	}
+	return nil, fmt.Errorf("no suitable git environment variables found")
+}
+
+func main() {
+
+	var out []byte
+
+	gitEnv, err := readGitEnvironment()
+	if err != nil {
+		log.Println(err)
+		log.Println("falling back to best effort")
+		out, err = exec.Command("git", "log", "-1", "--pretty=format:'%s'").Output()
 		if err != nil {
-			log.Fatal(fmt.Errorf("Unable to get log subject: '%s'", err))
+			log.Fatal(fmt.Errorf("Unable to get log subject '%s'", err))
+		}
+
+		// Handle Merge Request where the subject of last commit has the format:
+		// "Merge commitA-ID into commitB-ID"
+		// TODO: Make this generic by taking IDs as input params
+		subject := strings.Trim((string(out)), "'")
+		if strings.HasPrefix(subject, "Merge") {
+			log.Println("Handling Merge Request:\n", subject)
+			parts := strings.Fields(subject)
+			if len(parts) != 4 {
+				log.Fatal(fmt.Errorf("Unknown Merge commit format '%s'\n", subject))
+			}
+			out, err = exec.Command("git", "log", parts[3]+".."+parts[1], "--pretty=format:'%s'").Output()
+			if err != nil {
+				log.Fatal(fmt.Errorf("Unable to get log subject: '%s'", err))
+			}
+		}
+	} else {
+		out, err = exec.Command("git", "log", fmt.Sprintf("%s...%s", gitEnv.Base, gitEnv.Ref), "--pretty=format:'%s'").Output()
+		if err != nil {
+			log.Fatalf("Unable to get log subject '%s'", err)
 		}
 	}
 
 	// Check subject
-	for _, subject = range strings.Split(string(out), "\n") {
+	for _, subject := range strings.Split(string(out), "\n") {
 		subject = strings.Trim(subject, "'")
+		if strings.HasPrefix(subject, "Merge") {
+			continue
+		}
 		if err := checkSubject(string(subject)); err != nil {
 			log.Fatal(err)
 		}
