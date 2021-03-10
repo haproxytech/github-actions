@@ -40,7 +40,7 @@ func (pt PatchType) IsValid() error {
 	case BUG, BUILD, CLEANUP, DOC, LICENSE, OPTIM, RELEASE, REORG, TEST, REVERT:
 		return nil
 	}
-	return fmt.Errorf("Invalid patch type '%s'\n%s", pt, guidelinesLink)
+	return fmt.Errorf("Invalid patch type '%s'", pt)
 }
 
 func (ps PatchSeverity) IsValid() error {
@@ -48,13 +48,13 @@ func (ps PatchSeverity) IsValid() error {
 	case MINOR, MEDIUM, MAJOR, CRITICAL:
 		return nil
 	}
-	return fmt.Errorf("Invalid patch severity '%s'\n%s", ps, guidelinesLink)
+	return fmt.Errorf("Invalid patch severity '%s'", ps)
 }
 
 func checkSubject(subject string) error {
 	parts := strings.Split(subject, ":")
 	if len(parts) < 2 {
-		return fmt.Errorf("Incorrect message format '%s'\n%s", subject, guidelinesLink)
+		return fmt.Errorf("Incorrect message format '%s'", subject)
 	}
 
 	// Commit type
@@ -74,7 +74,7 @@ func checkSubject(subject string) error {
 			return err
 		}
 	default:
-		return fmt.Errorf("Incorrect message format '%s'\n%s", subject, guidelinesLink)
+		return fmt.Errorf("Incorrect message format '%s'", subject)
 	}
 	// Commit subject
 
@@ -167,6 +167,7 @@ func main() {
 		}
 	}
 
+	errors := false
 	// Check subject
 	for _, subject := range strings.Split(string(out), "\n") {
 		subject = strings.Trim(subject, "'")
@@ -174,7 +175,11 @@ func main() {
 			continue
 		}
 		if err := checkSubject(string(subject)); err != nil {
-			log.Fatal(err)
+			log.Printf("%s, original subject message '%s'", err, subject)
+			errors = true
 		}
+	}
+	if errors {
+		log.Fatalf("encountered one or more commit message errors\n%s", guidelinesLink)
 	}
 }
