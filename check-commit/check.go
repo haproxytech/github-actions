@@ -99,18 +99,6 @@ func split(r rune) bool {
 	return r == ' '
 }
 
-func stripQuotes(input string) string {
-	if len(input) > 0 {
-		if input[0] == []byte("'")[0] {
-			input = input[1:]
-		}
-		if input[len(input)-1] == []byte("'")[0] {
-			input = input[:len(input)-1]
-		}
-	}
-	return input
-}
-
 func main() {
 	out, err := exec.Command("git", "log", "-1", "--pretty=format:'%s'").Output()
 	if err != nil {
@@ -120,7 +108,7 @@ func main() {
 	// Handle Merge Request where the subject of last commit has the format:
 	// "Merge commitA-ID into commitB-ID"
 	// TODO: Make this generic by taking IDs as input params
-	subject := stripQuotes(string(out))
+	subject := strings.Trim((string(out)), "'")
 	if strings.HasPrefix(subject, "Merge") {
 		log.Println("Handling Merge Request:\n", subject)
 		parts := strings.Fields(subject)
@@ -135,7 +123,7 @@ func main() {
 
 	// Check subject
 	for _, subject = range strings.Split(string(out), "\n") {
-		subject = stripQuotes(subject)
+		subject = strings.Trim(subject, "'")
 		if err := checkSubject(string(subject)); err != nil {
 			log.Fatal(err)
 		}
