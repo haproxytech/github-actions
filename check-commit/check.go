@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -59,11 +60,6 @@ var defaultConf string = `
 			],
 			"Scope": "HAProxy Standard Scope"
 		},
-		"HAPEE Commit": {
-			"Values": [
-				"EE"
-			]
-		},
 		"HAProxy Standard Feature Commit": {
 			"Values": [
 				"MINOR",
@@ -76,12 +72,6 @@ var defaultConf string = `
 	"TagOrder": [
 		{
 			"PatchTypes": [
-				"HAPEE Commit"
-			],
-			"Optional": true
-		},
-		{
-			"PatchTypes": [
 				"HAProxy Standard Patch",
 				"HAProxy Standard Feature Commit"
 			]
@@ -92,8 +82,7 @@ var defaultConf string = `
 
 var myConfig prgConfig
 
-func checkSubject(subject string) error {
-	rawSubject := []byte(subject)
+func checkSubject(rawSubject []byte) error {
 	r, _ := regexp.Compile("^(?P<match>(?P<tag>[A-Z]+)(\\/(?P<scope>[A-Z]+))?: )") // 5 subgroups, 4. is "/scope", 5. is "scope"
 
 	t_tag := []byte("$tag")
@@ -149,6 +138,7 @@ func checkSubject(subject string) error {
 		}
 	}
 
+	subject := string(rawSubject)
 	subjectParts := strings.Fields(subject)
 
 	if subject != strings.Join(subjectParts, " ") {
@@ -222,10 +212,10 @@ func main() {
 
 	// Check subject
 	errors := false
-	for _, subject := range strings.Split(string(out), "\n") {
-		subject = strings.Trim(subject, "'")
-		if err := checkSubject(string(subject)); err != nil {
-			log.Printf("%s, original subject message '%s'", err, subject)
+	for _, subject := range bytes.Split(out, []byte("\n")) {
+		subject = bytes.Trim(subject, "'")
+		if err := checkSubject(subject); err != nil {
+			log.Printf("%s, original subject message '%s'", err, string(subject))
 			errors = true
 		}
 	}
