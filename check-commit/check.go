@@ -233,5 +233,7 @@ func main() {
 	if errors {
 		log.Printf("encountered one or more commit message errors\n")
 		log.Fatalf("%s\n", myConfig.HelpText)
+	} else {
+		log.Printf("check completed without errors\n")
 	}
 }
