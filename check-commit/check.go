@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -34,6 +35,57 @@ const (
 )
 
 const guidelinesLink = "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
+
+var defaultConf string = `
+{
+	"patchScopes": [
+		{
+			"scope": "HAProxy Standard Scope",
+			"values": [
+				"MINOR",
+				"MEDIUM",
+				"MAJOR",
+				"CRITICAL"
+			]
+		}
+	],
+	"patchTypes": [
+		{
+			"patch": "HAProxy Standard Patch",
+			"values": [
+				"BUG",
+				"BUILD",
+				"CLEANUP",
+				"DOC",
+				"LICENSE",
+				"OPTIM",
+				"RELEASE",
+				"REORG",
+				"TEST",
+				"REVERT"
+			],
+			"scope": "HAProxy Standard Scope"
+		},
+		{
+			"patch": "HAProxy Standard Feature Commit",
+			"values": [
+				"MINOR",
+				"MEDIUM",
+				"MAJOR",
+				"CRITICAL"
+			]
+		}
+	],
+	"tagOrder": [
+		{
+			"patchTypes": [
+				"HAProxy Standard Patch",
+				"HAProxy Standard Feature Commit"
+			]
+		}
+	]
+}
+`
 
 func (pt PatchType) IsValid() error {
 	switch pt {
@@ -80,6 +132,49 @@ func checkSubject(subject string) error {
 
 	subject = strings.Join(parts[1:], " ")
 	subjectParts := strings.FieldsFunc(subject, split)
+
+	if len(subjectParts) < 3 {
+		return fmt.Errorf("Too short or meaningless commit subject [words %d < 3] '%s'", len(subjectParts), subjectParts)
+	}
+	if len(subject) < 15 {
+		return fmt.Errorf("Too short or meaningless commit subject [len %d < 15]'%s'", len(subject), subject)
+	}
+	if len(subjectParts) > 15 {
+		return fmt.Errorf("Too long commit subject [words %d > 15 - use msg body] '%s'", len(subjectParts), subjectParts)
+	}
+	if len(subject) > 100 {
+		return fmt.Errorf("Too long commit subject [len %d > 100] '%s'", len(subject), subject)
+	}
+	return nil
+}
+
+func checkSubject2(subject string) error {
+	rawSubject := []byte(subject)
+	r, _ := regexp.Compile("^(?P<match>(?P<tag>[A-Z]+)(\\/(?P<scope>[A-Z]+))?: )") // 5 subgroups
+
+	t_tag := []byte("$tag")
+	t_scope := []byte("$scope")
+	result := []byte{}
+
+	for {
+		submatch := r.FindSubmatchIndex(rawSubject)
+		if len(submatch) == 0 { // no more submatch
+			break
+		}
+		tagPart := rawSubject[submatch[0]:submatch[1]]
+		rawSubject = rawSubject[submatch[1]:]
+
+		tag := string(r.Expand(result, t_tag, tagPart, submatch))
+		scope := string(r.Expand(result, t_scope, tagPart, submatch))
+
+		fmt.Printf("tag is %s, scope is %s, rest is %s\n", tag, scope, rawSubject)
+	}
+
+	subjectParts := strings.Fields(subject)
+
+	if subject != strings.Join(subjectParts, " ") {
+		log.Println("malformatted subject string (trailing or double spaces?)")
+	}
 
 	if len(subjectParts) < 3 {
 		return fmt.Errorf("Too short or meaningless commit subject [words %d < 3] '%s'", len(subjectParts), subjectParts)
@@ -171,15 +266,13 @@ func main() {
 	// Check subject
 	for _, subject := range strings.Split(string(out), "\n") {
 		subject = strings.Trim(subject, "'")
-		if strings.HasPrefix(subject, "Merge") {
-			continue
-		}
-		if err := checkSubject(string(subject)); err != nil {
+		if err := checkSubject2(string(subject)); err != nil {
 			log.Printf("%s, original subject message '%s'", err, subject)
 			errors = true
 		}
 	}
 	if errors {
-		log.Fatalf("encountered one or more commit message errors\n%s", guidelinesLink)
+		log.Fatalf("encountered one or more commit message errors\n")
+		log.Fatalln(guidelinesLink)
 	}
 }
