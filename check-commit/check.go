@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"fmt"
-	yaml "gopkg.in/yaml.v2"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+
+	yaml "gopkg.in/yaml.v2"
 )
 
 const guidelinesLink = "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
@@ -181,11 +183,22 @@ func readGitEnvironment() (*gitEnv, error) {
 }
 
 func main() {
+	var config string
+	if data, err := ioutil.ReadFile(".check-commit.yml"); err == nil {
+		config = string(data)
+	} else {
+		log.Printf("no config found, using built-in fallback configuration (HAProxy defaults)")
+		config = defaultConf
+	}
 
-	if err := yaml.Unmarshal([]byte(defaultConf), &myConfig); err != nil {
+	if err := yaml.Unmarshal([]byte(config), &myConfig); err != nil {
 		log.Fatalf("error reading configuration: %s", err)
 	}
-	fmt.Printf("%s\n", myConfig)
+	c1, _ := yaml.Marshal(myConfig)
+	c2, _ := yaml.Marshal(prgConfig{}) // empty config
+	if string(c1) == string(c2) {
+		log.Printf("WARNING: using empty configuration (i.e. no verification)")
+	}
 
 	var out []byte
 
