@@ -29,10 +29,12 @@ type prgConfig struct {
 	PatchScopes map[string][]string
 	PatchTypes  map[string]patchType_t
 	TagOrder    []tagAlternatives_t
+	HelpText    string
 }
 
 var defaultConf string = `
 {
+	"HelpText": "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632",
 	"PatchScopes": {
 		"HAProxy Standard Scope": [
 			"MINOR",
@@ -121,14 +123,18 @@ func checkSubject(subject string) error {
 			for _, allowedTag := range myConfig.PatchTypes[pType].Values {
 				if tag == allowedTag {
 					// log.Printf("found allowed tag %s\n", tag)
-					if myConfig.PatchTypes[pType].Scope != "" {
+					if scope == "" {
+						tagScopeOK = true
+					} else {
+						if myConfig.PatchTypes[pType].Scope == "" {
+							log.Printf("subject scope problem")
+							break // subject has scope but there is no definition to verify it
+						}
 						for _, allowedScope := range myConfig.PatchScopes[myConfig.PatchTypes[pType].Scope] {
 							if scope == allowedScope {
 								tagScopeOK = true
 							}
 						}
-					} else {
-						tagScopeOK = true
 					}
 				}
 			}
@@ -139,7 +145,7 @@ func checkSubject(subject string) error {
 			// log.Printf("tag is %s, scope is %s, rest is %s\n", tag, scope, rawSubject)
 		}
 		if !tagOK {
-			return fmt.Errorf("invalid tag or no tag found: %s", tag)
+			return fmt.Errorf("invalid tag or no tag found: %s/%s", tag, scope)
 		}
 	}
 
@@ -162,10 +168,6 @@ func checkSubject(subject string) error {
 		return fmt.Errorf("Too long commit subject [len %d > 100] '%s'", len(subject), subject)
 	}
 	return nil
-}
-
-func split(r rune) bool {
-	return r == ' '
 }
 
 type gitEnv struct {
@@ -229,7 +231,7 @@ func main() {
 	}
 
 	if errors {
-		log.Fatalf("encountered one or more commit message errors\n")
-		log.Fatalln(guidelinesLink)
+		log.Printf("encountered one or more commit message errors\n")
+		log.Fatalf("%s\n", myConfig.HelpText)
 	}
 }
