@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+	yaml "gopkg.in/yaml.v2"
 	"log"
 	"os"
 	"os/exec"
@@ -14,70 +14,58 @@ import (
 const guidelinesLink = "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
 
 type patchScope_t struct {
-	Scope  string
-	Values []string
+	Scope  string   `yaml:"Scope"`
+	Values []string `yaml:"Values"`
 }
 type patchType_t struct {
-	Values []string
-	Scope  string
+	Values []string `yaml:"Values"`
+	Scope  string   `yaml:"Scope"`
 }
 type tagAlternatives_t struct {
-	PatchTypes []string
-	Optional   bool
+	PatchTypes []string `yaml:"PatchTypes"`
+	Optional   bool     `yaml:"Optional"`
 }
 
 type prgConfig struct {
-	PatchScopes map[string][]string
-	PatchTypes  map[string]patchType_t
-	TagOrder    []tagAlternatives_t
-	HelpText    string
+	PatchScopes map[string][]string    `yaml:"PatchScopes"`
+	PatchTypes  map[string]patchType_t `yaml:"PatchTypes"`
+	TagOrder    []tagAlternatives_t    `yaml:"TagOrder"`
+	HelpText    string                 `yaml:"HelpText"`
 }
 
 var defaultConf string = `
-{
-	"HelpText": "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632",
-	"PatchScopes": {
-		"HAProxy Standard Scope": [
-			"MINOR",
-			"MEDIUM",
-			"MAJOR",
-			"CRITICAL"
-		]
-	},
-	"PatchTypes": {
-		"HAProxy Standard Patch": {
-			"Values": [
-				"BUG",
-				"BUILD",
-				"CLEANUP",
-				"DOC",
-				"LICENSE",
-				"OPTIM",
-				"RELEASE",
-				"REORG",
-				"TEST",
-				"REVERT"
-			],
-			"Scope": "HAProxy Standard Scope"
-		},
-		"HAProxy Standard Feature Commit": {
-			"Values": [
-				"MINOR",
-				"MEDIUM",
-				"MAJOR",
-				"CRITICAL"
-			]
-		}
-	},
-	"TagOrder": [
-		{
-			"PatchTypes": [
-				"HAProxy Standard Patch",
-				"HAProxy Standard Feature Commit"
-			]
-		}
-	]
-}
+---
+HelpText: "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
+PatchScopes:
+  HAProxy Standard Scope:
+    - MINOR
+    - MEDIUM
+    - MAJOR
+    - CRITICAL
+PatchTypes:
+  HAProxy Standard Patch:
+    Values:
+      - BUG
+      - BUILD
+      - CLEANUP
+      - DOC
+      - LICENSE
+      - OPTIM
+      - RELEASE
+      - REORG
+      - TEST
+      - REVERT
+    Scope: HAProxy Standard Scope
+  HAProxy Standard Feature Commit:
+    Values:
+      - MINOR
+      - MEDIUM
+      - MAJOR
+      - CRITICAL
+TagOrder:
+  - PatchTypes:
+    - HAProxy Standard Patch
+    - HAProxy Standard Feature Commit
 `
 
 var myConfig prgConfig
@@ -193,7 +181,8 @@ func readGitEnvironment() (*gitEnv, error) {
 }
 
 func main() {
-	if err := json.Unmarshal([]byte(defaultConf), &myConfig); err != nil {
+
+	if err := yaml.Unmarshal([]byte(defaultConf), &myConfig); err != nil {
 		log.Fatalf("error reading configuration: %s", err)
 	}
 	fmt.Printf("%s\n", myConfig)
