@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -9,33 +10,30 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
-const guidelinesLink = "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
+type patchTypeT struct {
+	Values []string `yaml:"Values"`
+	Scope  string   `yaml:"Scope"`
+}
 
-type patchScope_t struct {
-	Scope  string   `yaml:"Scope"`
-	Values []string `yaml:"Values"`
-}
-type patchType_t struct {
-	Values []string `yaml:"Values"`
-	Scope  string   `yaml:"Scope"`
-}
-type tagAlternatives_t struct {
+type tagAlternativesT struct {
 	PatchTypes []string `yaml:"PatchTypes"`
 	Optional   bool     `yaml:"Optional"`
 }
 
-type prgConfig struct {
-	PatchScopes map[string][]string    `yaml:"PatchScopes"`
-	PatchTypes  map[string]patchType_t `yaml:"PatchTypes"`
-	TagOrder    []tagAlternatives_t    `yaml:"TagOrder"`
-	HelpText    string                 `yaml:"HelpText"`
+type CommitPolicyConfig struct {
+	PatchScopes map[string][]string   `yaml:"PatchScopes"`
+	PatchTypes  map[string]patchTypeT `yaml:"PatchTypes"`
+	TagOrder    []tagAlternativesT    `yaml:"TagOrder"`
+	HelpText    string                `yaml:"HelpText"`
 }
 
-var defaultConf string = `
+const (
+	defaultConf = `
 ---
 HelpText: "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
 PatchScopes:
@@ -70,84 +68,114 @@ TagOrder:
     - HAProxy Standard Feature Commit
 `
 
-var myConfig prgConfig
+	minSubjectParts = 3
+	maxSubjectParts = 15
+	minSubjectLen   = 15
+	maxSubjectLen   = 100
+)
 
-func checkSubject(rawSubject []byte) error {
-	r, _ := regexp.Compile("^(?P<match>(?P<tag>[A-Z]+)(\\/(?P<scope>[A-Z]+))?: )") // 5 subgroups, 4. is "/scope", 5. is "scope"
+var ErrSubjectMessageFormat = errors.New("invalid subject message format")
 
-	t_tag := []byte("$tag")
-	t_scope := []byte("$scope")
-	result := []byte{}
-
-	var tag string
-	var scope string
-
-	for _, tagAlternative := range myConfig.TagOrder {
-		// log.Printf("processing tagalternative %s\n", tagAlternative)
-		tagOK := tagAlternative.Optional
-		for _, pType := range tagAlternative.PatchTypes {
-			// log.Printf("processing patchtype %s", pType)
-
-			submatch := r.FindSubmatchIndex(rawSubject)
-			if len(submatch) == 0 { // no match
-				continue
-			}
-			tagPart := rawSubject[submatch[0]:submatch[1]]
-
-			tag = string(r.Expand(result, t_tag, tagPart, submatch))
-			scope = string(r.Expand(result, t_scope, tagPart, submatch))
-
-			tagScopeOK := false
-
-			for _, allowedTag := range myConfig.PatchTypes[pType].Values {
-				if tag == allowedTag {
-					// log.Printf("found allowed tag %s\n", tag)
-					if scope == "" {
-						tagScopeOK = true
-					} else {
-						if myConfig.PatchTypes[pType].Scope == "" {
-							log.Printf("subject scope problem")
-							break // subject has scope but there is no definition to verify it
-						}
-						for _, allowedScope := range myConfig.PatchScopes[myConfig.PatchTypes[pType].Scope] {
-							if scope == allowedScope {
-								tagScopeOK = true
-							}
-						}
-					}
-				}
-			}
-			if tagScopeOK { //we found what we were looking for, so consume input
-				rawSubject = rawSubject[submatch[1]:]
-			}
-			tagOK = tagOK || tagScopeOK
-			// log.Printf("tag is %s, scope is %s, rest is %s\n", tag, scope, rawSubject)
-		}
-		if !tagOK {
-			return fmt.Errorf("invalid tag or no tag found: %s/%s", tag, scope)
-		}
-	}
-
-	subject := string(rawSubject)
+func checkSubjectText(subject string) error {
+	subjectLen := utf8.RuneCountInString(subject)
 	subjectParts := strings.Fields(subject)
+	subjectPartsLen := len(subjectParts)
 
 	if subject != strings.Join(subjectParts, " ") {
 		log.Printf("malformatted subject string (trailing or double spaces?): '%s'\n", subject)
 	}
 
-	if len(subjectParts) < 3 {
-		return fmt.Errorf("Too short or meaningless commit subject [words %d < 3] '%s'", len(subjectParts), subjectParts)
+	if subjectPartsLen < minSubjectParts || subjectPartsLen > maxSubjectParts {
+		return fmt.Errorf(
+			"subject word count out of bounds [words %d < %d < %d] '%s': %w",
+			minSubjectParts, subjectPartsLen, maxSubjectParts, subjectParts, ErrSubjectMessageFormat)
 	}
-	if len(subject) < 15 {
-		return fmt.Errorf("Too short or meaningless commit subject [len %d < 15]'%s'", len(subject), subject)
+
+	if subjectLen < minSubjectLen || subjectLen > maxSubjectLen {
+		return fmt.Errorf(
+			"subject length out of bounds [len %d < %d < %d] '%s': %w",
+			minSubjectLen, subjectLen, maxSubjectLen, subject, ErrSubjectMessageFormat)
 	}
-	if len(subjectParts) > 15 {
-		return fmt.Errorf("Too long commit subject [words %d > 15 - use msg body] '%s'", len(subjectParts), subjectParts)
-	}
-	if len(subject) > 100 {
-		return fmt.Errorf("Too long commit subject [len %d > 100] '%s'", len(subject), subject)
-	}
+
 	return nil
+}
+
+func (c CommitPolicyConfig) CheckPatchTypes(tag, severity string, patchTypeName string) bool {
+	tagScopeOK := false
+
+	for _, allowedTag := range c.PatchTypes[patchTypeName].Values {
+		if tag == allowedTag {
+			if severity == "" {
+				tagScopeOK = true
+
+				break
+			}
+
+			if c.PatchTypes[patchTypeName].Scope == "" {
+				log.Printf("unable to verify severity %s without definitions", severity)
+
+				break // subject has severity but there is no definition to verify it
+			}
+
+			for _, allowedScope := range c.PatchScopes[c.PatchTypes[patchTypeName].Scope] {
+				if severity == allowedScope {
+					tagScopeOK = true
+
+					break
+				}
+			}
+		}
+	}
+
+	return tagScopeOK
+}
+
+var ErrTagScope = errors.New("invalid tag and or severity")
+
+func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
+	// 5 subgroups, 4. is "/severity", 5. is "severity"
+	r := regexp.MustCompile(`^(?P<match>(?P<tag>[A-Z]+)(\/(?P<severity>[A-Z]+))?: )`)
+
+	tTag := []byte("$tag")
+	tScope := []byte("$severity")
+	result := []byte{}
+
+	var tag, severity string
+
+	for _, tagAlternative := range c.TagOrder {
+
+		tagOK := tagAlternative.Optional
+		for _, pType := range tagAlternative.PatchTypes { // we allow more than one set of tags in a position
+
+			submatch := r.FindSubmatchIndex(rawSubject)
+			if len(submatch) == 0 { // no match
+				continue
+			}
+
+			tagPart := rawSubject[submatch[0]:submatch[1]]
+
+			tag = string(r.Expand(result, tTag, tagPart, submatch))
+			severity = string(r.Expand(result, tScope, tagPart, submatch))
+
+			if c.CheckPatchTypes(tag, severity, pType) { // we found what we were looking for, so consume input
+				rawSubject = rawSubject[submatch[1]:]
+				tagOK = tagOK || true
+			}
+		}
+
+		if !tagOK {
+			return fmt.Errorf("invalid tag or no tag found: %w", ErrTagScope)
+		}
+	}
+
+	return checkSubjectText(string(rawSubject))
+}
+
+func (c CommitPolicyConfig) IsEmpty() bool {
+	c1, _ := yaml.Marshal(c)
+	c2, _ := yaml.Marshal(new(CommitPolicyConfig)) // empty config
+
+	return string(c1) == string(c2)
 }
 
 type gitEnv struct {
@@ -161,70 +189,90 @@ type gitEnvVars struct {
 	BaseVar string
 }
 
-var knownVars []gitEnvVars = []gitEnvVars{
-	{"Github", "GITHUB_REF", "GITHUB_BASE_REF"},
-	{"Gitlab", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
-}
+var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
+	knownVars := []gitEnvVars{
+		{"Github", "GITHUB_REF", "GITHUB_BASE_REF"},
+		{"Gitlab", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
+	}
+
 	var ref, base string
 	for _, vars := range knownVars {
 		ref = os.Getenv(vars.RefVar)
 		base = os.Getenv(vars.BaseVar)
+
 		if ref != "" && base != "" {
 			log.Printf("detected %s environment\n", vars.EnvName)
+
 			return &gitEnv{
 				Ref:  ref,
 				Base: base,
 			}, nil
 		}
 	}
-	return nil, fmt.Errorf("no suitable git environment variables found")
+
+	return nil, fmt.Errorf("no suitable git environment variables found %w", ErrGitEnvironment)
+}
+
+func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
+	var commitPolicy CommitPolicyConfig
+
+	var config string
+
+	if data, err := ioutil.ReadFile(filename); err != nil {
+		log.Printf("error reading config (%s), using built-in fallback configuration (HAProxy defaults)", err)
+
+		config = defaultConf
+	} else {
+		config = string(data)
+	}
+
+	if err := yaml.Unmarshal([]byte(config), &commitPolicy); err != nil {
+		return CommitPolicyConfig{}, fmt.Errorf("error loading commit policy: %w", err)
+	}
+
+	return commitPolicy, nil
 }
 
 func main() {
-	var config string
-	if data, err := ioutil.ReadFile(".check-commit.yml"); err == nil {
-		config = string(data)
-	} else {
-		log.Printf("no config found, using built-in fallback configuration (HAProxy defaults)")
-		config = defaultConf
-	}
-
-	if err := yaml.Unmarshal([]byte(config), &myConfig); err != nil {
+	commitPolicy, err := LoadCommitPolicy(".check-commit.yml")
+	if err != nil {
 		log.Fatalf("error reading configuration: %s", err)
 	}
-	c1, _ := yaml.Marshal(myConfig)
-	c2, _ := yaml.Marshal(prgConfig{}) // empty config
-	if string(c1) == string(c2) {
+
+	if commitPolicy.IsEmpty() {
 		log.Printf("WARNING: using empty configuration (i.e. no verification)")
 	}
-
-	var out []byte
 
 	gitEnv, err := readGitEnvironment()
 	if err != nil {
 		log.Fatalf("couldn't auto-detect running environment, please set GITHUB_REF and GITHUB_BASE_REF manually")
 	}
 
-	out, err = exec.Command("git", "log", fmt.Sprintf("%s...%s", gitEnv.Base, gitEnv.Ref), "--pretty=format:'%s'").Output()
+	commitRange := fmt.Sprintf("%s...%s", gitEnv.Base, gitEnv.Ref)
+
+	out, err := exec.Command("git", "log", commitRange, "--pretty=format:'%s'").Output()
 	if err != nil {
 		log.Fatalf("Unable to get log subject '%s'", err)
 	}
 
 	// Check subject
 	errors := false
+
 	for _, subject := range bytes.Split(out, []byte("\n")) {
+
 		subject = bytes.Trim(subject, "'")
-		if err := checkSubject(subject); err != nil {
+		if err := commitPolicy.CheckSubject(subject); err != nil {
 			log.Printf("%s, original subject message '%s'", err, string(subject))
+
 			errors = true
 		}
 	}
 
 	if errors {
 		log.Printf("encountered one or more commit message errors\n")
-		log.Fatalf("%s\n", myConfig.HelpText)
+		log.Fatalf("%s\n", commitPolicy.HelpText)
 	} else {
 		log.Printf("check completed without errors\n")
 	}
