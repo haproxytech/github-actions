@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -36,23 +37,38 @@ const (
 
 const guidelinesLink = "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
 
+type patchScope_t struct {
+	Scope  string
+	Values []string
+}
+type patchType_t struct {
+	Values []string
+	Scope  string
+}
+type tagAlternatives_t struct {
+	PatchTypes []string
+	Optional   bool
+}
+
+type prgConfig struct {
+	PatchScopes map[string][]string
+	PatchTypes  map[string]patchType_t
+	TagOrder    []tagAlternatives_t
+}
+
 var defaultConf string = `
 {
-	"patchScopes": [
-		{
-			"scope": "HAProxy Standard Scope",
-			"values": [
-				"MINOR",
-				"MEDIUM",
-				"MAJOR",
-				"CRITICAL"
-			]
-		}
-	],
-	"patchTypes": [
-		{
-			"patch": "HAProxy Standard Patch",
-			"values": [
+	"PatchScopes": {
+		"HAProxy Standard Scope": [
+			"MINOR",
+			"MEDIUM",
+			"MAJOR",
+			"CRITICAL"
+		]
+	},
+	"PatchTypes": {
+		"HAProxy Standard Patch": {
+			"Values": [
 				"BUG",
 				"BUILD",
 				"CLEANUP",
@@ -64,21 +80,31 @@ var defaultConf string = `
 				"TEST",
 				"REVERT"
 			],
-			"scope": "HAProxy Standard Scope"
+			"Scope": "HAProxy Standard Scope"
 		},
-		{
-			"patch": "HAProxy Standard Feature Commit",
-			"values": [
+		"HAPEE Commit": {
+			"Values": [
+				"EE"
+			]
+		},
+		"HAProxy Standard Feature Commit": {
+			"Values": [
 				"MINOR",
 				"MEDIUM",
 				"MAJOR",
 				"CRITICAL"
 			]
 		}
-	],
-	"tagOrder": [
+	},
+	"TagOrder": [
 		{
-			"patchTypes": [
+			"PatchTypes": [
+				"HAPEE Commit"
+			],
+			"Optional": true
+		},
+		{
+			"PatchTypes": [
 				"HAProxy Standard Patch",
 				"HAProxy Standard Feature Commit"
 			]
@@ -86,6 +112,11 @@ var defaultConf string = `
 	]
 }
 `
+
+var myConfig prgConfig
+
+type parsedConfig struct {
+}
 
 func (pt PatchType) IsValid() error {
 	switch pt {
@@ -150,30 +181,61 @@ func checkSubject(subject string) error {
 
 func checkSubject2(subject string) error {
 	rawSubject := []byte(subject)
-	r, _ := regexp.Compile("^(?P<match>(?P<tag>[A-Z]+)(\\/(?P<scope>[A-Z]+))?: )") // 5 subgroups
+	r, _ := regexp.Compile("^(?P<match>(?P<tag>[A-Z]+)(\\/(?P<scope>[A-Z]+))?: )") // 5 subgroups, 4. is "/scope", 5. is "scope"
 
 	t_tag := []byte("$tag")
 	t_scope := []byte("$scope")
 	result := []byte{}
 
-	for {
-		submatch := r.FindSubmatchIndex(rawSubject)
-		if len(submatch) == 0 { // no more submatch
-			break
+	var tag string
+	var scope string
+
+	for _, tagAlternative := range myConfig.TagOrder {
+		// log.Printf("processing tagalternative %s\n", tagAlternative)
+		tagOK := tagAlternative.Optional
+		for _, pType := range tagAlternative.PatchTypes {
+			// log.Printf("processing patchtype %s", pType)
+
+			submatch := r.FindSubmatchIndex(rawSubject)
+			if len(submatch) == 0 { // no match
+				continue
+			}
+			tagPart := rawSubject[submatch[0]:submatch[1]]
+
+			tag = string(r.Expand(result, t_tag, tagPart, submatch))
+			scope = string(r.Expand(result, t_scope, tagPart, submatch))
+
+			tagScopeOK := false
+
+			for _, allowedTag := range myConfig.PatchTypes[pType].Values {
+				if tag == allowedTag {
+					// log.Printf("found allowed tag %s\n", tag)
+					if myConfig.PatchTypes[pType].Scope != "" {
+						for _, allowedScope := range myConfig.PatchScopes[myConfig.PatchTypes[pType].Scope] {
+							if scope == allowedScope {
+								tagScopeOK = true
+							}
+						}
+					} else {
+						tagScopeOK = true
+					}
+				}
+			}
+			if tagScopeOK { //we found what we were looking for, so consume input
+				rawSubject = rawSubject[submatch[1]:]
+			}
+			tagOK = tagOK || tagScopeOK
+			// log.Printf("tag is %s, scope is %s, rest is %s\n", tag, scope, rawSubject)
 		}
-		tagPart := rawSubject[submatch[0]:submatch[1]]
-		rawSubject = rawSubject[submatch[1]:]
-
-		tag := string(r.Expand(result, t_tag, tagPart, submatch))
-		scope := string(r.Expand(result, t_scope, tagPart, submatch))
-
-		fmt.Printf("tag is %s, scope is %s, rest is %s\n", tag, scope, rawSubject)
+		if !tagOK {
+			return fmt.Errorf("invalid tag or no tag found: %s", tag)
+		}
 	}
 
 	subjectParts := strings.Fields(subject)
 
 	if subject != strings.Join(subjectParts, " ") {
-		log.Println("malformatted subject string (trailing or double spaces?)")
+		log.Printf("malformatted subject string (trailing or double spaces?): '%s'\n", subject)
 	}
 
 	if len(subjectParts) < 3 {
@@ -228,6 +290,10 @@ func readGitEnvironment() (*gitEnv, error) {
 }
 
 func main() {
+	if err := json.Unmarshal([]byte(defaultConf), &myConfig); err != nil {
+		log.Fatalf("error reading configuration: %s", err)
+	}
+	fmt.Printf("%s\n", myConfig)
 
 	var out []byte
 
