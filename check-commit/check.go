@@ -143,10 +143,9 @@ func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
 	var tag, severity string
 
 	for _, tagAlternative := range c.TagOrder {
-
 		tagOK := tagAlternative.Optional
-		for _, pType := range tagAlternative.PatchTypes { // we allow more than one set of tags in a position
 
+		for _, pType := range tagAlternative.PatchTypes { // we allow more than one set of tags in a position
 			submatch := r.FindSubmatchIndex(rawSubject)
 			if len(submatch) == 0 { // no match
 				continue
@@ -261,7 +260,6 @@ func main() {
 	errors := false
 
 	for _, subject := range bytes.Split(out, []byte("\n")) {
-
 		subject = bytes.Trim(subject, "'")
 		if err := commitPolicy.CheckSubject(subject); err != nil {
 			log.Printf("%s, original subject message '%s'", err, string(subject))
