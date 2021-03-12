@@ -1,17 +1,18 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -234,7 +235,66 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 	return commitPolicy, nil
 }
 
+func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) {
+	var refStrings []string
+	refStrings = append(refStrings, from)
+	refStrings = append(refStrings, to)
+
+	var hashes []*plumbing.Hash
+	for _, refString := range refStrings {
+		hash, err := repo.ResolveRevision(plumbing.Revision(refString))
+		if err != nil {
+			log.Fatalf("unable to resolve revision %s to hash", refString)
+		}
+		hashes = append(hashes, hash)
+	}
+
+	var commits []*object.Commit
+	for _, hash := range hashes {
+		commit, err := repo.CommitObject(*hash)
+		if err != nil {
+			log.Fatalf("unable to find commit %s", hash.String())
+		}
+		commits = append(commits, commit)
+	}
+
+	mergeBase, err := commits[0].MergeBase(commits[1])
+	if err != nil {
+		log.Fatalf("repo history error %s", err)
+	}
+
+	cIter, err := repo.Log(&git.LogOptions{From: *hashes[1]})
+	if err != nil {
+		log.Fatalf("error getting commit log %s", err)
+	}
+
+	var ErrReachedMergeBase = errors.New("reached Merge Base")
+
+	var subjects []string
+	err = cIter.ForEach(func(c *object.Commit) error {
+		if c.Hash == mergeBase[0].Hash {
+			return ErrReachedMergeBase
+		}
+		subjects = append(subjects, strings.Split(c.Message, "\n")[0])
+		return nil
+	})
+	if !errors.Is(err, ErrReachedMergeBase) {
+		return []string{}, fmt.Errorf("error tracing commit history: %w", err)
+	}
+	return subjects, nil
+}
+
 func main() {
+
+	var repoPath string
+
+	log.Printf("os args: %s", os.Args)
+
+	if len(os.Args) < 2 {
+		repoPath = "."
+	} else {
+		repoPath = os.Args[1]
+	}
 	commitPolicy, err := LoadCommitPolicy(".check-commit.yml")
 	if err != nil {
 		log.Fatalf("error reading configuration: %s", err)
@@ -249,19 +309,20 @@ func main() {
 		log.Fatalf("couldn't auto-detect running environment, please set GITHUB_REF and GITHUB_BASE_REF manually")
 	}
 
-	commitRange := fmt.Sprintf("%s...%s", gitEnv.Base, gitEnv.Ref)
-
-	out, err := exec.Command("git", "log", commitRange, "--pretty=format:'%s'").Output()
+	repo, err := git.PlainOpen(repoPath)
 	if err != nil {
-		log.Fatalf("Unable to get log subject '%s'", err)
+		log.Fatalf("couldn't open git local git repo: %s", err)
 	}
 
-	// Check subject
-	errors := false
+	subjects, err := getCommitSubjects(repo, gitEnv.Base, gitEnv.Ref)
+	if err != nil {
+		log.Fatalf("error getting commit subjects: %s", err)
+	}
 
-	for _, subject := range bytes.Split(out, []byte("\n")) {
-		subject = bytes.Trim(subject, "'")
-		if err := commitPolicy.CheckSubject(subject); err != nil {
+	errors := false
+	for _, subject := range subjects {
+		subject = strings.Trim(subject, "'")
+		if err := commitPolicy.CheckSubject([]byte(subject)); err != nil {
 			log.Printf("%s, original subject message '%s'", err, string(subject))
 
 			errors = true
