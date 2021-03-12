@@ -235,26 +235,32 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 	return commitPolicy, nil
 }
 
+var ErrReachedMergeBase = errors.New("reached Merge Base")
+
 func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) {
 	var refStrings []string
 	refStrings = append(refStrings, from)
 	refStrings = append(refStrings, to)
 
 	var hashes []*plumbing.Hash
+
 	for _, refString := range refStrings {
 		hash, err := repo.ResolveRevision(plumbing.Revision(refString))
 		if err != nil {
 			log.Fatalf("unable to resolve revision %s to hash", refString)
 		}
+
 		hashes = append(hashes, hash)
 	}
 
 	var commits []*object.Commit
+
 	for _, hash := range hashes {
 		commit, err := repo.CommitObject(*hash)
 		if err != nil {
 			log.Fatalf("unable to find commit %s", hash.String())
 		}
+
 		commits = append(commits, commit)
 	}
 
@@ -268,33 +274,35 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 		log.Fatalf("error getting commit log %s", err)
 	}
 
-	var ErrReachedMergeBase = errors.New("reached Merge Base")
-
 	var subjects []string
+
 	err = cIter.ForEach(func(c *object.Commit) error {
 		if c.Hash == mergeBase[0].Hash {
 			return ErrReachedMergeBase
 		}
+
 		subjects = append(subjects, strings.Split(c.Message, "\n")[0])
+
 		return nil
 	})
 	if !errors.Is(err, ErrReachedMergeBase) {
 		return []string{}, fmt.Errorf("error tracing commit history: %w", err)
 	}
+
 	return subjects, nil
 }
 
-func main() {
+const requiredCmdlineArgs = 2
 
+func main() {
 	var repoPath string
 
-	log.Printf("os args: %s", os.Args)
-
-	if len(os.Args) < 2 {
+	if len(os.Args) < requiredCmdlineArgs {
 		repoPath = "."
 	} else {
 		repoPath = os.Args[1]
 	}
+
 	commitPolicy, err := LoadCommitPolicy(".check-commit.yml")
 	if err != nil {
 		log.Fatalf("error reading configuration: %s", err)
@@ -320,10 +328,11 @@ func main() {
 	}
 
 	errors := false
+
 	for _, subject := range subjects {
 		subject = strings.Trim(subject, "'")
 		if err := commitPolicy.CheckSubject([]byte(subject)); err != nil {
-			log.Printf("%s, original subject message '%s'", err, string(subject))
+			log.Printf("%s, original subject message '%s'", err, subject)
 
 			errors = true
 		}
