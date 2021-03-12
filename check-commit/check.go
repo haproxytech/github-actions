@@ -215,6 +215,7 @@ func readGitEnvironment() (*gitEnv, error) {
 
 		if ref != "" && base != "" {
 			log.Printf("detected %s environment\n", vars.EnvName)
+			log.Printf("using %s and %s\n", ref, base)
 
 			return &gitEnv{
 				Ref:  ref,
