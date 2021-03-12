@@ -83,7 +83,9 @@ func checkSubjectText(subject string) error {
 	subjectPartsLen := len(subjectParts)
 
 	if subject != strings.Join(subjectParts, " ") {
-		return fmt.Errorf("malformatted subject string (trailing or double spaces?): '%s' (%w)", subject, ErrSubjectMessageFormat)
+		return fmt.Errorf(
+			"malformatted subject string (trailing or double spaces?): '%s' (%w)",
+			subject, ErrSubjectMessageFormat)
 	}
 
 	if subjectPartsLen < minSubjectParts || subjectPartsLen > maxSubjectParts {
@@ -292,6 +294,27 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 	return subjects, nil
 }
 
+var ErrSubjectList = errors.New("subjects contain errors")
+
+func (c CommitPolicyConfig) CheckSubjectList(subjects []string) error {
+	errors := false
+
+	for _, subject := range subjects {
+		subject = strings.Trim(subject, "'")
+		if err := c.CheckSubject([]byte(subject)); err != nil {
+			log.Printf("%s, original subject message '%s'", err, subject)
+
+			errors = true
+		}
+	}
+
+	if errors {
+		return ErrSubjectList
+	}
+
+	return nil
+}
+
 const requiredCmdlineArgs = 2
 
 func main() {
@@ -327,21 +350,10 @@ func main() {
 		log.Fatalf("error getting commit subjects: %s", err)
 	}
 
-	errors := false
-
-	for _, subject := range subjects {
-		subject = strings.Trim(subject, "'")
-		if err := commitPolicy.CheckSubject([]byte(subject)); err != nil {
-			log.Printf("%s, original subject message '%s'", err, subject)
-
-			errors = true
-		}
-	}
-
-	if errors {
+	if err := commitPolicy.CheckSubjectList(subjects); err != nil {
 		log.Printf("encountered one or more commit message errors\n")
 		log.Fatalf("%s\n", commitPolicy.HelpText)
-	} else {
-		log.Printf("check completed without errors\n")
 	}
+
+	log.Printf("check completed without errors\n")
 }
