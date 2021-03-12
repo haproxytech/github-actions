@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -326,7 +327,7 @@ func main() {
 		repoPath = os.Args[1]
 	}
 
-	commitPolicy, err := LoadCommitPolicy(".check-commit.yml")
+	commitPolicy, err := LoadCommitPolicy(path.Join(repoPath, ".check-commit.yml"))
 	if err != nil {
 		log.Fatalf("error reading configuration: %s", err)
 	}
