@@ -83,7 +83,7 @@ func checkSubjectText(subject string) error {
 	subjectPartsLen := len(subjectParts)
 
 	if subject != strings.Join(subjectParts, " ") {
-		log.Printf("malformatted subject string (trailing or double spaces?): '%s'\n", subject)
+		return fmt.Errorf("malformatted subject string (trailing or double spaces?): '%s' (%w)", subject, ErrSubjectMessageFormat)
 	}
 
 	if subjectPartsLen < minSubjectParts || subjectPartsLen > maxSubjectParts {
