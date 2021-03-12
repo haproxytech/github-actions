@@ -54,3 +54,46 @@ steps:
     uses: docker://haproxytech/check-commit:TAG
 ```
 Here we instruct `checkout@v2` action to fetch last 10 commits (by default it fetches only last one) which is required in case of checking multiple commits.
+
+## Example configuration
+
+If a configuration file (`.check-commit.yml`) is not available in the running directory, a built-in failsafe configuration identical to the one below is used.
+
+```yaml
+---
+HelpText: "Please refer to https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632"
+PatchScopes:
+  HAProxy Standard Scope:
+    - MINOR
+    - MEDIUM
+    - MAJOR
+    - CRITICAL
+PatchTypes:
+  HAProxy Standard Patch:
+    Values:
+      - BUG
+      - BUILD
+      - CLEANUP
+      - DOC
+      - LICENSE
+      - OPTIM
+      - RELEASE
+      - REORG
+      - TEST
+      - REVERT
+    Scope: HAProxy Standard Scope
+  HAProxy Standard Feature Commit:
+    Values:
+      - MINOR
+      - MEDIUM
+      - MAJOR
+      - CRITICAL
+TagOrder:
+  - PatchTypes:
+    - HAProxy Standard Patch
+    - HAProxy Standard Feature Commit
+```
+
+### Optional parameters
+
+The program accepts an optional parameter to specify the location (path) of the base of the git repository.
