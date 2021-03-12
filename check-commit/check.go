@@ -163,12 +163,18 @@ func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
 			if c.CheckPatchTypes(tag, severity, pType) { // we found what we were looking for, so consume input
 				rawSubject = rawSubject[submatch[1]:]
 				tagOK = tagOK || true
+				break
 			}
 		}
 
 		if !tagOK {
 			return fmt.Errorf("invalid tag or no tag found: %w", ErrTagScope)
 		}
+	}
+
+	submatch := r.FindSubmatchIndex(rawSubject)
+	if len(submatch) != 0 { // no match
+		return fmt.Errorf("detected unprocessed tags, %w", ErrTagScope)
 	}
 
 	return checkSubjectText(string(rawSubject))
