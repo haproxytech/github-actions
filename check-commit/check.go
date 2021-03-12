@@ -205,7 +205,7 @@ func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
 		{"Github", "GITHUB_REF", "GITHUB_BASE_REF"},
 		{"Gitlab", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
-		{"Gitlab-commit", "CI_COMMIT_REF_NAME", "CI_DEFAULT_BRANCH"},
+		{"Gitlab-commit", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
 	}
 
 	var ref, base string
@@ -258,7 +258,7 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 	for _, refString := range refStrings {
 		hash, err := repo.ResolveRevision(plumbing.Revision(refString))
 		if err != nil {
-			log.Fatalf("unable to resolve revision %s to hash", refString)
+			log.Fatalf("unable to resolve revision %s to hash: %s", refString, err)
 		}
 
 		hashes = append(hashes, hash)
