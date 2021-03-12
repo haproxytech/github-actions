@@ -163,6 +163,7 @@ func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
 			if c.CheckPatchTypes(tag, severity, pType) { // we found what we were looking for, so consume input
 				rawSubject = rawSubject[submatch[1]:]
 				tagOK = tagOK || true
+
 				break
 			}
 		}
@@ -278,7 +279,10 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 		log.Fatalf("repo history error %s", err)
 	}
 
-	cIter, err := repo.Log(&git.LogOptions{From: *hashes[1]})
+	logOptions := new(git.LogOptions)
+	logOptions.From = *hashes[1]
+
+	cIter, err := repo.Log(logOptions)
 	if err != nil {
 		log.Fatalf("error getting commit log %s", err)
 	}
