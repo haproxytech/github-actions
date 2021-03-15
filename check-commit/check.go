@@ -290,6 +290,7 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 
 	logOptions := new(git.LogOptions)
 	logOptions.From = *hashes[0]
+	logOptions.Order = git.LogOrderCommitterTime
 
 	cIter, err := repo.Log(logOptions)
 	if err != nil {
