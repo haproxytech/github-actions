@@ -253,7 +253,7 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 	refStrings = append(refStrings, from)
 	refStrings = append(refStrings, to)
 
-	var hashes []*plumbing.Hash
+	hashes := make([]*plumbing.Hash, 0, 2)
 
 	for _, refString := range refStrings {
 		hash, err := repo.ResolveRevision(plumbing.Revision(refString))
@@ -264,7 +264,7 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 		hashes = append(hashes, hash)
 	}
 
-	var commits []*object.Commit
+	commits := make([]*object.Commit, 0, 2)
 
 	for _, hash := range hashes {
 		commit, err := repo.CommitObject(*hash)
