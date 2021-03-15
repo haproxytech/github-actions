@@ -212,6 +212,7 @@ func readGitEnvironment() (*gitEnv, error) {
 	}
 
 	var ref, base string
+
 	for _, vars := range knownVars {
 		event := os.Getenv(vars.EventVar)
 		ref = os.Getenv(vars.RefVar)
@@ -288,7 +289,7 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 	}
 
 	logOptions := new(git.LogOptions)
-	logOptions.From = *hashes[1]
+	logOptions.From = *hashes[0]
 
 	cIter, err := repo.Log(logOptions)
 	if err != nil {
@@ -297,12 +298,13 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 
 	var subjects []string
 
-	gitlabMergeRegex := regexp.MustCompile("Merge %s into %s")
+	gitlabMergeRegex := regexp.MustCompile(`Merge \w{40} into \w{40}`)
 
 	err = cIter.ForEach(func(c *object.Commit) error {
 		if c.Hash == mergeBase[0].Hash {
 			return ErrReachedMergeBase
 		}
+		log.Printf("collected commit hash %s", c.Hash)
 
 		if !(repoEnv.EnvName == "Github" && repoEnv.Event == "pull_request" && gitlabMergeRegex.Match([]byte(c.Message))) {
 			// ignore github pull request commits with subject "Merge x into y", these get added automatically by github
