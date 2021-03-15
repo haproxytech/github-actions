@@ -305,11 +305,14 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 		if c.Hash == mergeBase[0].Hash {
 			return ErrReachedMergeBase
 		}
-		log.Printf("collected commit hash %s", c.Hash)
+		subjectOnly := strings.Split(c.Message, "\n")[0]
 
 		if !(repoEnv.EnvName == "Github" && repoEnv.Event == "pull_request" && gitlabMergeRegex.Match([]byte(c.Message))) {
 			// ignore github pull request commits with subject "Merge x into y", these get added automatically by github
-			subjects = append(subjects, strings.Split(c.Message, "\n")[0])
+			subjects = append(subjects, subjectOnly)
+			log.Printf("collected commit hash %s, subject '%s'", c.Hash, subjectOnly)
+		} else {
+			log.Printf("ignoring a pull_request Merge commit hash, %s subject '%s'", c.Hash, subjectOnly)
 		}
 
 		return nil
