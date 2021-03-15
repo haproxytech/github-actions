@@ -189,37 +189,43 @@ func (c CommitPolicyConfig) IsEmpty() bool {
 }
 
 type gitEnv struct {
-	Ref  string
-	Base string
+	EnvName string
+	Event   string
+	Ref     string
+	Base    string
 }
 
 type gitEnvVars struct {
-	EnvName string
-	RefVar  string
-	BaseVar string
+	EnvName  string
+	EventVar string
+	RefVar   string
+	BaseVar  string
 }
 
 var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
-		{"Github", "GITHUB_SHA", "GITHUB_BASE_REF"},
-		{"Gitlab", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
-		{"Gitlab-commit", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
+		{"Github", "GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_BASE_REF"},
+		{"Gitlab", "CI_PIPELINE_SOURCE", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
+		{"Gitlab-commit", "CI_PIPELINE_SOURCE", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
 	}
 
 	var ref, base string
 	for _, vars := range knownVars {
+		event := os.Getenv(vars.EventVar)
 		ref = os.Getenv(vars.RefVar)
 		base = os.Getenv(vars.BaseVar)
 
 		if ref != "" && base != "" {
 			log.Printf("detected %s environment\n", vars.EnvName)
-			log.Printf("using %s and %s\n", ref, base)
+			log.Printf("using %s with %s and %s\n", event, ref, base)
 
 			return &gitEnv{
-				Ref:  ref,
-				Base: base,
+				EnvName: vars.EnvName,
+				Event:   event,
+				Ref:     ref,
+				Base:    base,
 			}, nil
 		}
 	}
@@ -249,10 +255,10 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 
 var ErrReachedMergeBase = errors.New("reached Merge Base")
 
-func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) {
+func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) {
 	var refStrings []string
-	refStrings = append(refStrings, from)
-	refStrings = append(refStrings, to)
+	refStrings = append(refStrings, repoEnv.Ref)
+	refStrings = append(refStrings, repoEnv.Base)
 
 	hashes := make([]*plumbing.Hash, 0, 2)
 
@@ -291,12 +297,17 @@ func getCommitSubjects(repo *git.Repository, from, to string) ([]string, error) 
 
 	var subjects []string
 
+	gitlabMergeRegex := regexp.MustCompile("Merge %s into %s")
+
 	err = cIter.ForEach(func(c *object.Commit) error {
 		if c.Hash == mergeBase[0].Hash {
 			return ErrReachedMergeBase
 		}
 
-		subjects = append(subjects, strings.Split(c.Message, "\n")[0])
+		if !(repoEnv.EnvName == "Github" && repoEnv.Event == "pull_request" && gitlabMergeRegex.Match([]byte(c.Message))) {
+			// ignore github pull request commits with subject "Merge x into y", these get added automatically by github
+			subjects = append(subjects, strings.Split(c.Message, "\n")[0])
+		}
 
 		return nil
 	})
@@ -358,7 +369,7 @@ func main() {
 		log.Fatalf("couldn't open git local git repo: %s", err)
 	}
 
-	subjects, err := getCommitSubjects(repo, gitEnv.Base, gitEnv.Ref)
+	subjects, err := getCommitSubjects(repo, gitEnv)
 	if err != nil {
 		log.Fatalf("error getting commit subjects: %s", err)
 	}

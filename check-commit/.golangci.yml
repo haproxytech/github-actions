@@ -3,3 +3,5 @@ linters-settings:
     lines: 70
   testpackage:
     skip-regexp: check_test.go
+  cyclop:
+    max-complexity: 12
