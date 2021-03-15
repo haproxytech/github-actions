@@ -203,7 +203,7 @@ var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
-		{"Github", "GITHUB_REF", "GITHUB_BASE_REF"},
+		{"Github", "GITHUB_SHA", "GITHUB_BASE_REF"},
 		{"Gitlab", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
 		{"Gitlab-commit", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
 	}
