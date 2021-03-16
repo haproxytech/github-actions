@@ -70,10 +70,12 @@ TagOrder:
     - HAProxy Standard Feature Commit
 `
 
-	minSubjectParts = 3
-	maxSubjectParts = 15
-	minSubjectLen   = 15
-	maxSubjectLen   = 100
+	MINSUBJECTPARTS = 3
+	MAXSUBJECTPARTS = 15
+	MINSUBJECTLEN   = 15
+	MAXSUBJECTLEN   = 100
+
+	GITHUB = "Github"
 )
 
 var ErrSubjectMessageFormat = errors.New("invalid subject message format")
@@ -89,16 +91,16 @@ func checkSubjectText(subject string) error {
 			subject, ErrSubjectMessageFormat)
 	}
 
-	if subjectPartsLen < minSubjectParts || subjectPartsLen > maxSubjectParts {
+	if subjectPartsLen < MINSUBJECTPARTS || subjectPartsLen > MAXSUBJECTPARTS {
 		return fmt.Errorf(
 			"subject word count out of bounds [words %d < %d < %d] '%s': %w",
-			minSubjectParts, subjectPartsLen, maxSubjectParts, subjectParts, ErrSubjectMessageFormat)
+			MINSUBJECTPARTS, subjectPartsLen, MAXSUBJECTPARTS, subjectParts, ErrSubjectMessageFormat)
 	}
 
-	if subjectLen < minSubjectLen || subjectLen > maxSubjectLen {
+	if subjectLen < MINSUBJECTLEN || subjectLen > MAXSUBJECTLEN {
 		return fmt.Errorf(
 			"subject length out of bounds [len %d < %d < %d] '%s': %w",
-			minSubjectLen, subjectLen, maxSubjectLen, subject, ErrSubjectMessageFormat)
+			MINSUBJECTLEN, subjectLen, MAXSUBJECTLEN, subject, ErrSubjectMessageFormat)
 	}
 
 	return nil
@@ -206,7 +208,7 @@ var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
-		{"Github", "GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_BASE_REF"},
+		{GITHUB, "GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_BASE_REF"},
 		{"Gitlab", "CI_PIPELINE_SOURCE", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
 		{"Gitlab-commit", "CI_PIPELINE_SOURCE", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
 	}
@@ -218,9 +220,9 @@ func readGitEnvironment() (*gitEnv, error) {
 		ref = os.Getenv(vars.RefVar)
 		base = os.Getenv(vars.BaseVar)
 
-		if ref != "" && base != "" {
+		if !(ref == "" && base == "") || (vars.EnvName == GITHUB && event == "push") {
 			log.Printf("detected %s environment\n", vars.EnvName)
-			log.Printf("using %s with %s and %s\n", event, ref, base)
+			log.Printf("using event '%s' with refs '%s' and '%s'\n", event, ref, base)
 
 			return &gitEnv{
 				EnvName: vars.EnvName,
@@ -231,7 +233,7 @@ func readGitEnvironment() (*gitEnv, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no suitable git environment variables found %w", ErrGitEnvironment)
+	return nil, fmt.Errorf("no suitable git environment variables found: %w", ErrGitEnvironment)
 }
 
 func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
@@ -254,12 +256,13 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 	return commitPolicy, nil
 }
 
-var ErrReachedMergeBase = errors.New("reached Merge Base")
-
-func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) {
+func hashesFromRefs(repo *git.Repository, repoEnv *gitEnv) ([]*plumbing.Hash, []*object.Commit) {
 	var refStrings []string
 	refStrings = append(refStrings, repoEnv.Ref)
-	refStrings = append(refStrings, repoEnv.Base)
+
+	if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "push") { // for Github push we only have the last commit
+		refStrings = append(refStrings, repoEnv.Base)
+	}
 
 	hashes := make([]*plumbing.Hash, 0, 2)
 
@@ -281,6 +284,18 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 		}
 
 		commits = append(commits, commit)
+	}
+
+	return hashes, commits
+}
+
+var ErrReachedMergeBase = errors.New("reached Merge Base")
+
+func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) {
+	hashes, commits := hashesFromRefs(repo, repoEnv)
+
+	if len(commits) == 1 { // just the last commit
+		return []string{strings.Split(commits[0].Message, "\n")[0]}, nil
 	}
 
 	mergeBase, err := commits[0].MergeBase(commits[1])
@@ -307,7 +322,7 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 		}
 		subjectOnly := strings.Split(c.Message, "\n")[0]
 
-		if !(repoEnv.EnvName == "Github" && repoEnv.Event == "pull_request" && gitlabMergeRegex.Match([]byte(c.Message))) {
+		if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "pull_request" && gitlabMergeRegex.Match([]byte(c.Message))) {
 			// ignore github pull request commits with subject "Merge x into y", these get added automatically by github
 			subjects = append(subjects, subjectOnly)
 			log.Printf("collected commit hash %s, subject '%s'", c.Hash, subjectOnly)
@@ -367,7 +382,7 @@ func main() {
 
 	gitEnv, err := readGitEnvironment()
 	if err != nil {
-		log.Fatalf("couldn't auto-detect running environment, please set GITHUB_REF and GITHUB_BASE_REF manually")
+		log.Fatalf("couldn't auto-detect running environment, please set GITHUB_REF and GITHUB_BASE_REF manually: %s", err)
 	}
 
 	repo, err := git.PlainOpen(repoPath)
