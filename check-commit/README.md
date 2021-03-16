@@ -49,11 +49,15 @@ steps:
   - name: Check out code
     uses: actions/checkout@v2
     with:
-      fetch-depth: 10
+      fetch-depth: 0
+  - name: Create base branch reference
+    uses: actions/checkout@v2
+    with:
+      ref: main
   - name: check-commit
     uses: docker://haproxytech/check-commit:TAG
 ```
-Here we instruct `checkout@v2` action to fetch last 10 commits (by default it fetches only last one) which is required in case of checking multiple commits.
+Here we instruct `checkout@v2` action to fetch the repo history, as well as the main branch of the repo. This creates git refs in the checked-out repository so that the check-commit can do a merge-base operation against the main and the feature branch. Modify the main repo name from this example to reflect what is the main repo name in your own repository.
 
 ## Example configuration
 
@@ -96,4 +100,4 @@ TagOrder:
 
 ### Optional parameters
 
-The program accepts an optional parameter to specify the location (path) of the base of the git repository.
+The program accepts an optional parameter to specify the location (path) of the base of the git repository. This can be useful in certain cases where the checked-out repo is in a non-standard location within the CI environment, compared to the running path from which the check-commit binary is being invoked.
