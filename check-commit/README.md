@@ -1,3 +1,5 @@
+![check-commit; golangci-lint](https://github.com/haproxytech/github-actions/actions/workflows/main.yml/badge.svg)
+
 # GitHub Action: Check commit subject is compliant with HAProxy guidelines
 
 This action checks that the commit subject is compliant with the [patch classifying rules](https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632) of HAProxy contribution guidelines. Also it does minimal check for a meaningful message in the commit subject: no less than 20 characters and at least 3 words.
