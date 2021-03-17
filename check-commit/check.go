@@ -242,7 +242,7 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 	var config string
 
 	if data, err := ioutil.ReadFile(filename); err != nil {
-		log.Printf("error reading config (%s), using built-in fallback configuration (HAProxy defaults)", err)
+		log.Printf("warning: using built-in fallback configuration with HAProxy defaults (%s)", err)
 
 		config = defaultConf
 	} else {
