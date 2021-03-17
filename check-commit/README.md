@@ -50,14 +50,14 @@ steps:
     uses: actions/checkout@v2
     with:
       fetch-depth: 0
-  - name: Create base branch reference
-    uses: actions/checkout@v2
-    with:
-      ref: main
   - name: check-commit
     uses: docker://haproxytech/check-commit:TAG
 ```
-Here we instruct `checkout@v2` action to fetch the repo history, as well as the main branch of the repo. This creates git refs in the checked-out repository so that the check-commit can do a merge-base operation against the main and the feature branch. Modify the main repo name from this example to reflect what is the main repo name in your own repository.
+Here we instruct `checkout@v2` action to fetch the repo history.
+
+Check-commit can work on `pull_request` events by inspecting all commit messages between a merge-base commit of the the target branch (usually main, looked up from `$GITHUB_BASE_REF`) and the tip of the feature branch (`$GITHUB_REF`) branch. If the operation is a `push` only the last commit is checked.
+
+For this to work, the `origin/$GITHUB_BASE_REF` ref has to be a part of the history checked out by `actions/checkout@v2`, so `fetch-depth: 0` is can be used as a safe option to fetch the complete repo history. Setting this to a fixed number will limit how many commits are allowed in a Pull Request to that many commits and will speed up the checkout for large repos.
 
 ## Example configuration
 

@@ -261,7 +261,7 @@ func hashesFromRefs(repo *git.Repository, repoEnv *gitEnv) ([]*plumbing.Hash, []
 	refStrings = append(refStrings, repoEnv.Ref)
 
 	if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "push") { // for Github push we only have the last commit
-		refStrings = append(refStrings, repoEnv.Base)
+		refStrings = append(refStrings, fmt.Sprintf("refs/remotes/origin/%s", repoEnv.Base))
 	}
 
 	hashes := make([]*plumbing.Hash, 0, 2)
