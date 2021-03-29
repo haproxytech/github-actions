@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-git/go-git/v5"
@@ -139,6 +141,14 @@ func (c CommitPolicyConfig) CheckPatchTypes(tag, severity string, patchTypeName 
 var ErrTagScope = errors.New("invalid tag and or severity")
 
 func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
+	// check for ascii-only before anything else
+	for i := 0; i < len(rawSubject); i++ {
+		if rawSubject[i] > unicode.MaxASCII {
+			log.Printf("non-ascii characters detected in in subject:\n%s", hex.Dump(rawSubject))
+
+			return fmt.Errorf("non-ascii characters in commit subject: %w", ErrTagScope)
+		}
+	}
 	// 5 subgroups, 4. is "/severity", 5. is "severity"
 	r := regexp.MustCompile(`^(?P<match>(?P<tag>[A-Z]+)(\/(?P<severity>[A-Z]+))?: )`)
 
@@ -146,22 +156,24 @@ func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
 	tScope := []byte("$severity")
 	result := []byte{}
 
+	candidates := []string{}
+
 	var tag, severity string
 
 	for _, tagAlternative := range c.TagOrder {
 		tagOK := tagAlternative.Optional
 
+		submatch := r.FindSubmatchIndex(rawSubject)
+		if len(submatch) == 0 { // no match
+			continue
+		}
+
+		tagPart := rawSubject[submatch[0]:submatch[1]]
+
+		tag = string(r.Expand(result, tTag, tagPart, submatch))
+		severity = string(r.Expand(result, tScope, tagPart, submatch))
+
 		for _, pType := range tagAlternative.PatchTypes { // we allow more than one set of tags in a position
-			submatch := r.FindSubmatchIndex(rawSubject)
-			if len(submatch) == 0 { // no match
-				continue
-			}
-
-			tagPart := rawSubject[submatch[0]:submatch[1]]
-
-			tag = string(r.Expand(result, tTag, tagPart, submatch))
-			severity = string(r.Expand(result, tScope, tagPart, submatch))
-
 			if c.CheckPatchTypes(tag, severity, pType) { // we found what we were looking for, so consume input
 				rawSubject = rawSubject[submatch[1]:]
 				tagOK = tagOK || true
@@ -170,8 +182,13 @@ func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
 			}
 		}
 
+		candidates = append(candidates, string(tagPart))
+
 		if !tagOK {
-			return fmt.Errorf("invalid tag or no tag found: %w", ErrTagScope)
+			log.Printf("unable to find match in %s\n", candidates)
+
+			return fmt.Errorf("invalid tag or no tag found, searched through [%s]: %w",
+				strings.Join(tagAlternative.PatchTypes, ", "), ErrTagScope)
 		}
 	}
 
