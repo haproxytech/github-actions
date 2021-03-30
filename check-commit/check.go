@@ -212,6 +212,7 @@ type gitEnv struct {
 	Event   string
 	Ref     string
 	Base    string
+	Repo    string
 }
 
 type gitEnvVars struct {
@@ -219,15 +220,26 @@ type gitEnvVars struct {
 	EventVar string
 	RefVar   string
 	BaseVar  string
+	RepoVar  string
 }
 
 var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
-		{GITHUB, "GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_BASE_REF"},
-		{"Gitlab", "CI_PIPELINE_SOURCE", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
-		{"Gitlab-commit", "CI_PIPELINE_SOURCE", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
+		{
+			GITHUB,
+			"GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_BASE_REF", "GITHUB_REPOSITORY",
+		},
+		// currently gitlab doesn't expose repository info so this will end up empty
+		{
+			"Gitlab",
+			"CI_PIPELINE_SOURCE", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME", "X",
+		},
+		{
+			"Gitlab-commit",
+			"CI_PIPELINE_SOURCE", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH", "X",
+		},
 	}
 
 	var ref, base string
@@ -276,6 +288,15 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 func hashesFromRefs(repo *git.Repository, repoEnv *gitEnv) ([]*plumbing.Hash, []*object.Commit) {
 	var refStrings []string
 	refStrings = append(refStrings, repoEnv.Ref)
+
+	remotes, err := repo.Remotes()
+	if err != nil {
+		log.Fatalf("fetching remotes: %s", err)
+	}
+
+	for _, rem := range remotes {
+		log.Printf("remote: %s\n", rem)
+	}
 
 	if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "push") { // for Github push we only have the last commit
 		refStrings = append(refStrings, fmt.Sprintf("refs/remotes/origin/%s", repoEnv.Base))
