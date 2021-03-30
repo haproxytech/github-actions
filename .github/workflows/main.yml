@@ -15,7 +15,11 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
+
+      - name: env-print
+        run: env
+        shell: bash
 
       - name: check-commit
         uses: docker://haproxytech/check-commit:latest
