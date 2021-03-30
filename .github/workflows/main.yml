@@ -17,12 +17,16 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: env-print
-        run: env
-        shell: bash
-
       - name: check-commit
-        uses: docker://haproxytech/check-commit:latest
+        #uses: docker://haproxytech/check-commit:latest
+        run: |
+          env
+          echo "available refs"
+          git show-ref
+          echo "running check"
+          git clone -b target_branch_detection https://github.com/aiharos/github-actions.git
+          cd github-actions/check-commit; go run check.go "../../."
+
 
   golangci:
     name: lint
