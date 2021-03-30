@@ -293,10 +293,25 @@ func hashesFromRefs(repo *git.Repository, repoEnv *gitEnv) ([]*plumbing.Hash, []
 	if err != nil {
 		log.Fatalf("fetching remotes: %s", err)
 	}
-
 	for _, rem := range remotes {
 		log.Printf("remote: %s\n", rem)
 	}
+
+	refs, err := repo.References()
+	if err != nil {
+		log.Fatalf("fetching repo references: %s", err)
+	}
+
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		// The HEAD is omitted in a `git show-ref` so we ignore the symbolic
+		// references, the HEAD
+		if ref.Type() == plumbing.SymbolicReference {
+			return nil
+		}
+
+		fmt.Println(ref)
+		return nil
+	})
 
 	if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "push") { // for Github push we only have the last commit
 		refStrings = append(refStrings, fmt.Sprintf("refs/remotes/origin/%s", repoEnv.Base))
@@ -338,6 +353,7 @@ func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) 
 
 	mergeBase, err := commits[0].MergeBase(commits[1])
 	if err != nil {
+		log.Printf("when using hashes %s and commits %s from %s", hashes, commits, repoEnv)
 		log.Fatalf("repo history error %s", err)
 	}
 
