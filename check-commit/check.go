@@ -231,7 +231,7 @@ var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
-		{GITHUB, "GITHUB_API_URL", "GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA"},
+		{GITHUB, "GITHUB_API_URL", "API_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA"},
 		{GITLAB, "CI_API_V4_URL", "CI_JOB_TOKEN", "CI_MERGE_REQUEST_PROJECT_ID", "CI_MERGE_REQUEST_ID"},
 	}
 
