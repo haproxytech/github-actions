@@ -211,51 +211,26 @@ func (c CommitPolicyConfig) IsEmpty() bool {
 	return string(c1) == string(c2)
 }
 
-type gitEnv struct {
-	EnvName     string
-	URL         string
-	Token       string
-	ProjectID   string
-	PMRequestID string
-}
-
-type gitEnvVars struct {
-	EnvName   string
-	ApiUrl    string
-	ApiToken  string
-	ProjectID string
-	RequestID string
-}
-
 var ErrGitEnvironment = errors.New("git environment error")
 
-func readGitEnvironment() (*gitEnv, error) {
-	knownVars := []gitEnvVars{
-		{GITHUB, "GITHUB_API_URL", "API_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA"},
-		{GITLAB, "CI_API_V4_URL", "CI_JOB_TOKEN", "CI_MERGE_REQUEST_PROJECT_ID", "CI_MERGE_REQUEST_ID"},
-	}
+func readGitEnvironment() (string, error) {
+	url := os.Getenv("GITHUB_API_URL")
+	if url != "" {
+		log.Printf("detected %s environment\n", GITHUB)
+		log.Printf("using api url '%s'\n", url)
 
-	for _, vars := range knownVars {
-		url := os.Getenv(vars.ApiUrl)
-		token := os.Getenv(vars.ApiToken)
-		project := os.Getenv(vars.ProjectID)
-		request := os.Getenv(vars.RequestID)
-
-		if !(url == "" && token == "" && project == "" && request == "") {
-			log.Printf("detected %s environment\n", vars.EnvName)
+		return GITHUB, nil
+	} else {
+		url = os.Getenv("CI_API_V4_URL")
+		if url != "" {
+			log.Printf("detected %s environment\n", GITLAB)
 			log.Printf("using api url '%s'\n", url)
 
-			return &gitEnv{
-				EnvName:     vars.EnvName,
-				URL:         url,
-				Token:       token,
-				ProjectID:   project,
-				PMRequestID: request,
-			}, nil
+			return GITLAB, nil
+		} else {
+			return "", fmt.Errorf("no suitable git environment variables found: %w", ErrGitEnvironment)
 		}
 	}
-
-	return nil, fmt.Errorf("no suitable git environment variables found: %w", ErrGitEnvironment)
 }
 
 func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
@@ -278,7 +253,12 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 	return commitPolicy, nil
 }
 
-func getGithubCommitSubjects(token string, repo string, sha string) ([]string, error) {
+func getGithubCommitSubjects() ([]string, error) {
+	token := os.Getenv("API_TOKEN")
+	repo := os.Getenv("GITHUB_REPOSITORY")
+	ref := os.Getenv("GITHUB_REF")
+	event := os.Getenv("GITHUB_EVENT_NAME")
+
 	ctx := context.Background()
 
 	ts := oauth2.StaticTokenSource(
@@ -287,53 +267,62 @@ func getGithubCommitSubjects(token string, repo string, sha string) ([]string, e
 	tc := oauth2.NewClient(ctx, ts)
 	githubClient := github.NewClient(tc)
 
-	repoSlice := strings.SplitN(repo, "/", 2)
+	if event == "pull_request" {
+		repoSlice := strings.SplitN(repo, "/", 2)
+		if len(repoSlice) < 2 {
+			return nil, fmt.Errorf("error fetching owner and project from repo %s", repo)
+		}
+		owner := repoSlice[0]
+		project := repoSlice[1]
 
-	prs, _, err := githubClient.PullRequests.ListPullRequestsWithCommit(ctx, repoSlice[0], repoSlice[1], sha, &github.PullRequestListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("error fetching prs for commit %s: %w", sha, err)
-	}
+		refSlice := strings.SplitN(ref, "/", 4)
+		if len(refSlice) < 3 {
+			return nil, fmt.Errorf("error fetching pr from ref %s", ref)
+		}
+		prNo, err := strconv.Atoi(refSlice[2])
+		if err != nil {
+			return nil, fmt.Errorf("Error fetching pr number from %s: %w", refSlice[2], err)
+		}
 
-	subjects := []string{}
-	if len(prs) > 0 {
-		// Check the latest PR with this commit
-		prNo := prs[0].GetNumber()
-		commits, _, err := githubClient.PullRequests.ListCommits(ctx, repoSlice[0], repoSlice[1], prNo, &github.ListOptions{})
+		commits, _, err := githubClient.PullRequests.ListCommits(ctx, owner, project, prNo, &github.ListOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("error fetching commits: %w", err)
 		}
+
+		subjects := []string{}
 		for _, c := range commits {
 			l := strings.SplitN(c.Commit.GetMessage(), "\n", 2)
 			if len(l) > 0 {
 				subjects = append(subjects, l[0])
 			}
 		}
+		return subjects, nil
 	} else {
-		// no PRs, event was a direct push, check only latest commit
-		c, _, err := githubClient.Repositories.GetCommit(ctx, repoSlice[0], repoSlice[1], sha)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching commit %s: %w", sha, err)
-		}
-		l := strings.SplitN(c.Commit.GetMessage(), "\n", 2)
-		if len(l) > 0 {
-			subjects = append(subjects, l[0])
-		}
+		return nil, fmt.Errorf("unsupported event name: %s", event)
 	}
-
-	return subjects, nil
 }
 
-func gitGitlabCommitSubjects(url string, token string, project string, mr string) ([]string, error) {
-	gitlabClient, err := gitlab.NewClient(token, gitlab.WithBaseURL(url))
+func gitGitlabCommitSubjects() ([]string, error) {
+	gitlab_url := os.Getenv("CI_API_V4_URL")
+	token := os.Getenv("API_TOKEN")
+	mri := os.Getenv("CI_MERGE_REQUEST_IID")
+	project := os.Getenv("CI_MERGE_REQUEST_PROJECT_ID")
+
+	gitlabClient, err := gitlab.NewClient(token, gitlab.WithBaseURL(gitlab_url))
 	if err != nil {
 		log.Fatalf("Failed to create gitlab client: %v", err)
 	}
 
-	mrID, err := strconv.Atoi(mr)
+	mrIID, err := strconv.Atoi(mri)
 	if err != nil {
-		return nil, fmt.Errorf("invalid merge request id %s", mr)
+		return nil, fmt.Errorf("invalid merge request id %s", mri)
 	}
-	commits, _, err := gitlabClient.MergeRequests.GetMergeRequestCommits(project, mrID, &gitlab.GetMergeRequestCommitsOptions{})
+
+	projectID, err := strconv.Atoi(project)
+	if err != nil {
+		return nil, fmt.Errorf("invalid project id %s", project)
+	}
+	commits, _, err := gitlabClient.MergeRequests.GetMergeRequestCommits(projectID, mrIID, &gitlab.GetMergeRequestCommitsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error fetching commits: %w", err)
 	}
@@ -349,13 +338,13 @@ func gitGitlabCommitSubjects(url string, token string, project string, mr string
 	return subjects, nil
 }
 
-func getCommitSubjects(repoEnv *gitEnv) ([]string, error) {
-	if repoEnv.EnvName == GITHUB {
-		return getGithubCommitSubjects(repoEnv.Token, repoEnv.ProjectID, repoEnv.PMRequestID)
-	} else if repoEnv.EnvName == GITLAB {
-		return gitGitlabCommitSubjects(repoEnv.URL, repoEnv.Token, repoEnv.ProjectID, repoEnv.PMRequestID)
+func getCommitSubjects(repoEnv string) ([]string, error) {
+	if repoEnv == GITHUB {
+		return getGithubCommitSubjects()
+	} else if repoEnv == GITLAB {
+		return gitGitlabCommitSubjects()
 	}
-	return nil, fmt.Errorf("unrecognized git environment %s", repoEnv.EnvName)
+	return nil, fmt.Errorf("unrecognized git environment %s", repoEnv)
 }
 
 var ErrSubjectList = errors.New("subjects contain errors")
