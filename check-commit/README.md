@@ -4,9 +4,6 @@
 
 This action checks that the commit subject is compliant with the [patch classifying rules](https://github.com/haproxy/haproxy/blob/master/CONTRIBUTING#L632) of HAProxy contribution guidelines. Also it does minimal check for a meaningful message in the commit subject: no less than 20 characters and at least 3 words.
 
-By default only the top commit subject is checked.
-If the commit subject has the format: `Merge 'commitA-ID' into 'commitB-ID'`, all commit subjects between 'commitA' and 'commitB' will be checked.
-
 ## Examples
 
 ### Good
@@ -48,18 +45,12 @@ None.
 
 ```yaml
 steps:
-  - name: Check out code
-    uses: actions/checkout@v2
-    with:
-      fetch-depth: 0
   - name: check-commit
     uses: docker://haproxytech/check-commit:TAG
+    env:
+      API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
-Here we instruct `checkout@v2` action to fetch the repo history.
-
-Check-commit can work on `pull_request` events by inspecting all commit messages between a merge-base commit of the the target branch (usually main, looked up from `$GITHUB_BASE_REF`) and the tip of the feature branch (`$GITHUB_REF`) branch. If the operation is a `push` only the last commit is checked.
-
-For this to work, the `origin/$GITHUB_BASE_REF` ref has to be a part of the history checked out by `actions/checkout@v2`, so `fetch-depth: 0` is can be used as a safe option to fetch the complete repo history. Setting this to a fixed number will limit how many commits are allowed in a Pull Request to that many commits and will speed up the checkout for large repos.
+Check-commit works only on `pull_request` events by inspecting all commit messages in a Pull Request. It uses Github API [pull requests API](https://docs.github.com/en/rest/reference/pulls#list-commits-on-a-pull-request) to fetch the commits so API_TOKEN env_variable is required.
 
 ## Example configuration
 
