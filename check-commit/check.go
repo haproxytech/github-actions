@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -9,13 +10,15 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/google/go-github/v35/github"
+
+	"github.com/xanzy/go-gitlab"
+	"golang.org/x/oauth2"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -78,6 +81,7 @@ TagOrder:
 	MAXSUBJECTLEN   = 100
 
 	GITHUB = "Github"
+	GITLAB = "Gitlab"
 )
 
 var ErrSubjectMessageFormat = errors.New("invalid subject message format")
@@ -208,44 +212,45 @@ func (c CommitPolicyConfig) IsEmpty() bool {
 }
 
 type gitEnv struct {
-	EnvName string
-	Event   string
-	Ref     string
-	Base    string
+	EnvName     string
+	URL         string
+	Token       string
+	ProjectID   string
+	PMRequestID string
 }
 
 type gitEnvVars struct {
-	EnvName  string
-	EventVar string
-	RefVar   string
-	BaseVar  string
+	EnvName   string
+	ApiUrl    string
+	ApiToken  string
+	ProjectID string
+	RequestID string
 }
 
 var ErrGitEnvironment = errors.New("git environment error")
 
 func readGitEnvironment() (*gitEnv, error) {
 	knownVars := []gitEnvVars{
-		{GITHUB, "GITHUB_EVENT_NAME", "GITHUB_SHA", "GITHUB_BASE_REF"},
-		{"Gitlab", "CI_PIPELINE_SOURCE", "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME", "CI_MERGE_REQUEST_TARGET_BRANCH_NAME"},
-		{"Gitlab-commit", "CI_PIPELINE_SOURCE", "CI_COMMIT_SHA", "CI_DEFAULT_BRANCH"},
+		{GITHUB, "GITHUB_API_URL", "GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_SHA"},
+		{GITLAB, "CI_API_V4_URL", "CI_JOB_TOKEN", "CI_MERGE_REQUEST_PROJECT_ID", "CI_MERGE_REQUEST_ID"},
 	}
 
-	var ref, base string
-
 	for _, vars := range knownVars {
-		event := os.Getenv(vars.EventVar)
-		ref = os.Getenv(vars.RefVar)
-		base = os.Getenv(vars.BaseVar)
+		url := os.Getenv(vars.ApiUrl)
+		token := os.Getenv(vars.ApiToken)
+		project := os.Getenv(vars.ProjectID)
+		request := os.Getenv(vars.RequestID)
 
-		if !(ref == "" && base == "") || (vars.EnvName == GITHUB && event == "push") {
+		if !(url == "" && token == "" && project == "" && request == "") {
 			log.Printf("detected %s environment\n", vars.EnvName)
-			log.Printf("using event '%s' with refs '%s' and '%s'\n", event, ref, base)
+			log.Printf("using api url '%s'\n", url)
 
 			return &gitEnv{
-				EnvName: vars.EnvName,
-				Event:   event,
-				Ref:     ref,
-				Base:    base,
+				EnvName:     vars.EnvName,
+				URL:         url,
+				Token:       token,
+				ProjectID:   project,
+				PMRequestID: request,
 			}, nil
 		}
 	}
@@ -273,87 +278,84 @@ func LoadCommitPolicy(filename string) (CommitPolicyConfig, error) {
 	return commitPolicy, nil
 }
 
-func hashesFromRefs(repo *git.Repository, repoEnv *gitEnv) ([]*plumbing.Hash, []*object.Commit) {
-	var refStrings []string
-	refStrings = append(refStrings, repoEnv.Ref)
+func getGithubCommitSubjects(token string, repo string, sha string) ([]string, error) {
+	ctx := context.Background()
 
-	if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "push") { // for Github push we only have the last commit
-		refStrings = append(refStrings, fmt.Sprintf("refs/remotes/origin/%s", repoEnv.Base))
-	}
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+	githubClient := github.NewClient(tc)
 
-	hashes := make([]*plumbing.Hash, 0, 2)
+	repoSlice := strings.SplitN(repo, "/", 2)
 
-	for _, refString := range refStrings {
-		hash, err := repo.ResolveRevision(plumbing.Revision(refString))
-		if err != nil {
-			log.Fatalf("unable to resolve revision %s to hash: %s", refString, err)
-		}
-
-		hashes = append(hashes, hash)
-	}
-
-	commits := make([]*object.Commit, 0, 2)
-
-	for _, hash := range hashes {
-		commit, err := repo.CommitObject(*hash)
-		if err != nil {
-			log.Fatalf("unable to find commit %s", hash.String())
-		}
-
-		commits = append(commits, commit)
-	}
-
-	return hashes, commits
-}
-
-var ErrReachedMergeBase = errors.New("reached Merge Base")
-
-func getCommitSubjects(repo *git.Repository, repoEnv *gitEnv) ([]string, error) {
-	hashes, commits := hashesFromRefs(repo, repoEnv)
-
-	if len(commits) == 1 { // just the last commit
-		return []string{strings.Split(commits[0].Message, "\n")[0]}, nil
-	}
-
-	mergeBase, err := commits[0].MergeBase(commits[1])
+	prs, _, err := githubClient.PullRequests.ListPullRequestsWithCommit(ctx, repoSlice[0], repoSlice[1], sha, &github.PullRequestListOptions{})
 	if err != nil {
-		log.Fatalf("repo history error %s", err)
+		return nil, fmt.Errorf("error fetching prs for commit %s: %w", sha, err)
 	}
 
-	logOptions := new(git.LogOptions)
-	logOptions.From = *hashes[0]
-	logOptions.Order = git.LogOrderCommitterTime
-
-	cIter, err := repo.Log(logOptions)
-	if err != nil {
-		log.Fatalf("error getting commit log %s", err)
-	}
-
-	var subjects []string
-
-	gitlabMergeRegex := regexp.MustCompile(`Merge \w{40} into \w{40}`)
-
-	err = cIter.ForEach(func(c *object.Commit) error {
-		if c.Hash == mergeBase[0].Hash {
-			return ErrReachedMergeBase
+	subjects := []string{}
+	if len(prs) > 0 {
+		// Check the latest PR with this commit
+		prNo := prs[0].GetNumber()
+		commits, _, err := githubClient.PullRequests.ListCommits(ctx, repoSlice[0], repoSlice[1], prNo, &github.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("error fetching commits: %w", err)
 		}
-		subjectOnly := strings.Split(c.Message, "\n")[0]
-
-		if !(repoEnv.EnvName == GITHUB && repoEnv.Event == "pull_request" && gitlabMergeRegex.Match([]byte(c.Message))) {
-			// ignore github pull request commits with subject "Merge x into y", these get added automatically by github
-			subjects = append(subjects, subjectOnly)
-			log.Printf("collected commit hash %s, subject '%s'", c.Hash, subjectOnly)
-		} else {
-			log.Printf("ignoring a pull_request Merge commit hash, %s subject '%s'", c.Hash, subjectOnly)
+		for _, c := range commits {
+			l := strings.SplitN(c.Commit.GetMessage(), "\n", 2)
+			if len(l) > 0 {
+				subjects = append(subjects, l[0])
+			}
 		}
-
-		return nil
-	})
-	if !errors.Is(err, ErrReachedMergeBase) {
-		return []string{}, fmt.Errorf("error tracing commit history: %w", err)
+	} else {
+		// no PRs, event was a direct push, check only latest commit
+		c, _, err := githubClient.Repositories.GetCommit(ctx, repoSlice[0], repoSlice[1], sha)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching commit %s: %w", sha, err)
+		}
+		l := strings.SplitN(c.Commit.GetMessage(), "\n", 2)
+		if len(l) > 0 {
+			subjects = append(subjects, l[0])
+		}
 	}
 
 	return subjects, nil
+}
+
+func gitGitlabCommitSubjects(url string, token string, project string, mr string) ([]string, error) {
+	gitlabClient, err := gitlab.NewClient(token, gitlab.WithBaseURL(url))
+	if err != nil {
+		log.Fatalf("Failed to create gitlab client: %v", err)
+	}
+
+	mrID, err := strconv.Atoi(mr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid merge request id %s", mr)
+	}
+	commits, _, err := gitlabClient.MergeRequests.GetMergeRequestCommits(project, mrID, &gitlab.GetMergeRequestCommitsOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error fetching commits: %w", err)
+	}
+
+	subjects := []string{}
+	for _, c := range commits {
+		l := strings.SplitN(c.Message, "\n", 2)
+		if len(l) > 0 {
+			subjects = append(subjects, l[0])
+		}
+	}
+
+	return subjects, nil
+}
+
+func getCommitSubjects(repoEnv *gitEnv) ([]string, error) {
+	if repoEnv.EnvName == GITHUB {
+		return getGithubCommitSubjects(repoEnv.Token, repoEnv.ProjectID, repoEnv.PMRequestID)
+	} else if repoEnv.EnvName == GITLAB {
+		return gitGitlabCommitSubjects(repoEnv.URL, repoEnv.Token, repoEnv.ProjectID, repoEnv.PMRequestID)
+	}
+	return nil, fmt.Errorf("unrecognized git environment %s", repoEnv.EnvName)
 }
 
 var ErrSubjectList = errors.New("subjects contain errors")
@@ -402,12 +404,7 @@ func main() {
 		log.Fatalf("couldn't auto-detect running environment, please set GITHUB_REF and GITHUB_BASE_REF manually: %s", err)
 	}
 
-	repo, err := git.PlainOpen(repoPath)
-	if err != nil {
-		log.Fatalf("couldn't open git local git repo: %s", err)
-	}
-
-	subjects, err := getCommitSubjects(repo, gitEnv)
+	subjects, err := getCommitSubjects(gitEnv)
 	if err != nil {
 		log.Fatalf("error getting commit subjects: %s", err)
 	}
