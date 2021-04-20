@@ -302,7 +302,7 @@ func getGithubCommitSubjects() ([]string, error) {
 	}
 }
 
-func gitGitlabCommitSubjects() ([]string, error) {
+func getGitlabCommitSubjects() ([]string, error) {
 	gitlab_url := os.Getenv("CI_API_V4_URL")
 	token := os.Getenv("API_TOKEN")
 	mri := os.Getenv("CI_MERGE_REQUEST_IID")
@@ -342,7 +342,7 @@ func getCommitSubjects(repoEnv string) ([]string, error) {
 	if repoEnv == GITHUB {
 		return getGithubCommitSubjects()
 	} else if repoEnv == GITLAB {
-		return gitGitlabCommitSubjects()
+		return getGitlabCommitSubjects()
 	}
 	return nil, fmt.Errorf("unrecognized git environment %s", repoEnv)
 }
