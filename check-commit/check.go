@@ -169,6 +169,12 @@ func (c CommitPolicyConfig) CheckSubject(rawSubject []byte) error {
 
 		submatch := r.FindSubmatchIndex(rawSubject)
 		if len(submatch) == 0 { // no match
+			if !tagOK {
+				log.Printf("unable to find match in %s\n", rawSubject)
+
+				return fmt.Errorf("invalid tag or no tag found, searched through [%s]: %w",
+					strings.Join(tagAlternative.PatchTypes, ", "), ErrTagScope)
+			}
 			continue
 		}
 
