@@ -1,0 +1,58 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  go_lint:
+    name: Go lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v2
+        with:
+          working-directory: check-commit
+  check_commit:
+    if: ${{ github.event_name == 'pull_request' }}
+    name: HAProxy check commit message
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: check-commit
+        uses: docker://haproxytech/check-commit:latest
+        env:
+          API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  go_build:
+    name: Go build
+    runs-on: ubuntu-latest
+    needs: ["go_lint"]
+    steps:
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+    - name: Set up Go 1.17
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.17
+      id: go
+    - name: Get dependencies
+      run: |
+        cd check-commit && go get -v -t -d ./...
+    - name: Build
+      run: |
+        cd check-commit && go build -v .
+  go_test:
+    name: Go test
+    runs-on: ubuntu-latest
+    needs: ["go_lint"]
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        go-version: 1.17
+      id: go
+    - name: Get dependencies
+      run: |
+        cd check-commit && go get -v -t -d ./...
+    - name: Build
+      run: |
+        cd check-commit && go test ./...
